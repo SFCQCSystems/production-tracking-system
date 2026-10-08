@@ -4842,7 +4842,7 @@
     // =========================================================================
     // COMPONENT: จัดการแผนคำสั่งผลิตจาก SAP (EXCEL STAGING MANAGER)
     // =========================================================================
-    function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsertSapStagingOrders, dbConfig }) {
+    function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsertSapStagingOrders, dbConfig, onSyncCloud }) {
       const [searchQuery, setSearchQuery] = useState('');
       const [typeFilter, setTypeFilter] = useState('ALL'); // 'ALL' | 'Blending' | 'Packing'
       const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'Planned' | 'Released'
@@ -5162,6 +5162,17 @@
                   <span>➕</span>
                   <span>เพิ่มด้วยตนเอง</span>
                 </button>
+                {totalCount > 0 && onSyncCloud && (
+                  <button
+                    type="button"
+                    onClick={onSyncCloud}
+                    className="btn-touch px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-xs shadow-sm flex items-center gap-1.5 transition-all"
+                    title="ซิงค์แผนคำสั่งผลิตทั้งหมดขึ้น Supabase ทันที"
+                  >
+                    <span>☁️</span>
+                    <span>ซิงค์ขึ้น Supabase ({totalCount})</span>
+                  </button>
+                )}
                 {totalCount > 0 && (
                   <button
                     type="button"
@@ -6412,6 +6423,38 @@
                 setUsers(uRow.data);
                 localStorage.setItem(STORAGE_USERS, JSON.stringify(uRow.data));
               }
+
+              const sRow = rows.find((r) => r.collection_name === 'sapStagingOrders');
+              if (sRow && Array.isArray(sRow.data) && sRow.data.length > 0) {
+                setSapStagingOrders(sRow.data);
+                localStorage.setItem(STORAGE_SAP_STAGING_ORDERS, JSON.stringify(sRow.data));
+              } else if (!sRow || !Array.isArray(sRow.data) || sRow.data.length === 0) {
+                // หากใน Supabase ยังไม่มีข้อมูล แต่ในเครื่องนี้เคยอัปโหลดไว้ ให้ดันขึ้น Supabase ทันที
+                try {
+                  const localStr = localStorage.getItem(STORAGE_SAP_STAGING_ORDERS);
+                  if (localStr) {
+                    const localOrders = JSON.parse(localStr);
+                    if (Array.isArray(localOrders) && localOrders.length > 0) {
+                      const cleanUrl = dbConfig.supabaseUrl.replace(/\/+$/, '');
+                      fetch(`${cleanUrl}/rest/v1/mes_sync_store`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'apikey': dbConfig.supabaseAnonKey,
+                          'Authorization': `Bearer ${dbConfig.supabaseAnonKey}`,
+                          'Prefer': 'resolution=merge-duplicates'
+                        },
+                        body: JSON.stringify({
+                          collection_name: 'sapStagingOrders',
+                          data: localOrders,
+                          revision: Date.now(),
+                          updated_at: new Date().toISOString()
+                        })
+                      }).catch(() => {});
+                    }
+                  }
+                } catch {}
+              }
             }
             return true;
           }
@@ -6457,6 +6500,10 @@
             if (Array.isArray(us) && us.length > 0) {
               setUsers(us);
               localStorage.setItem(STORAGE_USERS, JSON.stringify(us));
+            }
+            if (Array.isArray(json.data?.sapStagingOrders)) {
+              setSapStagingOrders(json.data.sapStagingOrders);
+              localStorage.setItem(STORAGE_SAP_STAGING_ORDERS, JSON.stringify(json.data.sapStagingOrders));
             }
           }
           return true;
@@ -6546,6 +6593,11 @@
                 localStorage.setItem(STORAGE_CURRENT_USER, JSON.stringify(liveCur));
               }
             }
+          }
+          const s = localStorage.getItem(STORAGE_SAP_STAGING_ORDERS);
+          if (s) {
+            const parsed = JSON.parse(s);
+            if (Array.isArray(parsed)) setSapStagingOrders(parsed);
           }
         } catch (e) {
           console.error(e);
@@ -6685,9 +6737,10 @@
             console.error('Save staging orders error:', e);
           }
           broadcastDataChange();
+          pushCollectionToServer('sapStagingOrders', updated);
           return updated;
         });
-      }, [broadcastDataChange]);
+      }, [broadcastDataChange, pushCollectionToServer]);
 
       // Smart Upsert: รวมหรืออัปเดตคำสั่งผลิตจากไฟล์ Excel ใหม่
       const upsertSapStagingOrders = useCallback((incomingOrders) => {
@@ -6733,11 +6786,12 @@
             console.error('Save staging orders error:', e);
           }
           broadcastDataChange();
+          pushCollectionToServer('sapStagingOrders', result);
           return result;
         });
 
         return { inserted, updated, total: resultTotal };
-      }, [broadcastDataChange]);
+      }, [broadcastDataChange, pushCollectionToServer]);
 
       const saveApiConfig = (newConfig) => {
         const centralSap = newConfig.erp || {};
@@ -14842,6 +14896,18 @@
                           saveSapStagingOrders={saveSapStagingOrders}
                           upsertSapStagingOrders={upsertSapStagingOrders}
                           dbConfig={dbConfig}
+                          onSyncCloud={async () => {
+                            if (!dbConfig.supabaseUrl || !dbConfig.supabaseAnonKey) {
+                              alert('⚠️ กรุณาตั้งค่าเชื่อมต่อ Supabase ในแท็บ "เชื่อมต่อ API" ก่อนซิงค์');
+                              return;
+                            }
+                            try {
+                              await pushCollectionToServer('sapStagingOrders', sapStagingOrders);
+                              alert(`✅ ซิงค์แผนคำสั่งผลิตขึ้น Supabase สำเร็จเรียบร้อยแล้ว (${sapStagingOrders.length} รายการ)!\nทุกเครื่องในโรงงาน (มือถือ, แท็บเล็ต, PC) จะมองเห็นข้อมูลแผนผลิตพร้อมกันทันที`);
+                            } catch (e) {
+                              alert('❌ เกิดข้อผิดพลาดในการซิงค์: ' + e.message);
+                            }
+                          }}
                         />
                       )}
 
