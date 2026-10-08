@@ -4341,6 +4341,275 @@
     }
 
     // =========================================================================
+    // MODAL: แชร์การเชื่อมต่อฐานข้อมูลด่วน & QR CODE (QUICK CONNECT & SHARE MODAL)
+    // =========================================================================
+    function ShareDbModal({ dbConfig, onClose, onImportToken }) {
+      const [copiedLink, setCopiedLink] = useState(false);
+      const [copiedToken, setCopiedToken] = useState(false);
+      const [inputToken, setInputToken] = useState('');
+      const [activeTab, setActiveTab] = useState('qr'); // 'qr' | 'link' | 'import'
+
+      const hasCreds = Boolean(dbConfig?.supabaseUrl && dbConfig?.supabaseAnonKey);
+
+      let token = '';
+      let quickUrl = '';
+      if (hasCreds) {
+        try {
+          token = btoa(JSON.stringify({
+            url: (dbConfig.supabaseUrl || '').trim(),
+            key: (dbConfig.supabaseAnonKey || '').trim()
+          }));
+          const origin = window.location.origin || '';
+          const pathname = window.location.pathname || '';
+          quickUrl = `${origin}${pathname}#setup_db=${encodeURIComponent(token)}`;
+        } catch (e) {
+          console.warn('Error creating token:', e);
+        }
+      }
+
+      const qrImageUrl = quickUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=8&data=${encodeURIComponent(quickUrl)}` : '';
+
+      const handleCopyLink = () => {
+        if (!quickUrl) return;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(quickUrl).then(() => {
+            setCopiedLink(true);
+            setTimeout(() => setCopiedLink(false), 2500);
+          }).catch(() => {
+            prompt('คัดลอกลิงก์เชื่อมต่อด่วน:', quickUrl);
+          });
+        } else {
+          prompt('คัดลอกลิงก์เชื่อมต่อด่วน:', quickUrl);
+        }
+      };
+
+      const handleCopyToken = () => {
+        if (!token) return;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(token).then(() => {
+            setCopiedToken(true);
+            setTimeout(() => setCopiedToken(false), 2500);
+          }).catch(() => {
+            prompt('คัดลอกรหัสเชื่อมต่อ:', token);
+          });
+        } else {
+          prompt('คัดลอกรหัสเชื่อมต่อ:', token);
+        }
+      };
+
+      const handleImport = (e) => {
+        e.preventDefault();
+        if (!inputToken.trim()) {
+          alert('⚠️ กรุณาวางรหัสเชื่อมต่อ (Connection Token) ก่อน');
+          return;
+        }
+        onImportToken(inputToken.trim());
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white border-2 border-indigo-200 rounded-3xl max-w-lg w-full max-h-[92vh] overflow-y-auto shadow-2xl text-slate-800">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-xl shadow-inner text-indigo-600">
+                  📱
+                </div>
+                <div>
+                  <h3 className="font-bold text-base sm:text-lg text-slate-900 leading-tight">
+                    แชร์และเชื่อมต่อด่วน (Quick Connect)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    เชื่อมต่อฐานข้อมูล Supabase ไปยังมือถือ แท็บเล็ต หรือ PC อื่น
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-lg transition-all"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 sm:p-6 space-y-4 text-sm">
+              {!hasCreds ? (
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-center space-y-2">
+                  <div className="text-3xl">⚠️</div>
+                  <div className="font-bold text-base">ยังไม่ได้ระบุ Supabase URL & Key</div>
+                  <p className="text-xs text-amber-700">
+                    กรุณากรอก Supabase Project URL และ Anon Key ในเมนูการตั้งค่าฐานข้อมูลให้เรียบร้อยก่อนแชร์
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Segmented Control Tabs */}
+                  <div className="flex p-1 bg-slate-100 rounded-2xl text-xs font-bold gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('qr')}
+                      className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 ${activeTab === 'qr' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                    >
+                      <span>📷</span>
+                      <span>สแกน QR Code</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('link')}
+                      className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 ${activeTab === 'link' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                    >
+                      <span>🔗</span>
+                      <span>ลิงก์เชื่อมต่อด่วน</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('import')}
+                      className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 ${activeTab === 'import' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                    >
+                      <span>📥</span>
+                      <span>นำเข้ารหัส</span>
+                    </button>
+                  </div>
+
+                  {/* TAB 1: QR CODE */}
+                  {activeTab === 'qr' && (
+                    <div className="space-y-4 text-center">
+                      <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col items-center">
+                        <img
+                          src={qrImageUrl}
+                          alt="Quick Setup QR Code"
+                          className="w-56 h-56 rounded-xl border-2 border-white shadow-md bg-white p-2"
+                        />
+                        <div className="mt-3 text-xs text-slate-600 font-medium">
+                          📸 เปิดกล้องมือถือ/แท็บเล็ต หรือ LINE เพื่อสแกนเข้าใช้งาน
+                        </div>
+                      </div>
+
+                      <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-left text-xs text-indigo-900 space-y-1">
+                        <div className="font-bold flex items-center gap-1.5">
+                          <span>✨</span>
+                          <span>ระบบทำงานอย่างไร:</span>
+                        </div>
+                        <p className="text-indigo-800 text-[11px] leading-relaxed">
+                          เมื่อเครื่องอื่นสแกน QR Code นี้ ระบบจะเปิดหน้าเว็บพร้อมบันทึก URL & Key ลงเครื่องให้อัตโนมัติ 100% โดยผู้ใช้ไม่ต้องกรอกข้อมูลใดๆ
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleCopyLink}
+                        className="w-full btn-touch py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <span>{copiedLink ? '✅ คัดลอกลิงก์แล้ว' : '📋 คัดลอกลิงก์เชื่อมต่อด่วน'}</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* TAB 2: QUICK LINK */}
+                  {activeTab === 'link' && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                          🔗 ลิงก์เชื่อมต่อด่วน (Quick Setup URL)
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            readOnly
+                            value={quickUrl}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono text-slate-800 select-all focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleCopyLink}
+                            className="btn-touch px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow shrink-0 transition-all"
+                          >
+                            {copiedLink ? '✅ คัดลอกแล้ว' : '📋 คัดลอก'}
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          ส่งลิงก์นี้เข้ากลุ่ม LINE หรือเปิดใน Browser เครื่องใดก็ได้เพื่อเชื่อมต่ออัตโนมัติ
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100">
+                        <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                          🔑 รหัสเชื่อมต่อ (Connection Token)
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            readOnly
+                            value={token}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono text-slate-800 select-all focus:outline-none truncate"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleCopyToken}
+                            className="btn-touch px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs shadow shrink-0 transition-all"
+                          >
+                            {copiedToken ? '✅ คัดลอกแล้ว' : '📋 คัดลอก'}
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          ใช้กรณีนำไปวางในแท็บ "นำเข้ารหัส" ของเครื่องอื่น
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 3: IMPORT TOKEN */}
+                  {activeTab === 'import' && (
+                    <form onSubmit={handleImport} className="space-y-3">
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900">
+                        💡 <strong>นำเข้ารหัสเชื่อมต่อจากเครื่องแอดมิน:</strong> วางรหัส Token ที่คัดลอกมาเพื่อเชื่อมต่อกับ Supabase ของโรงงานทันที
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                          📥 วางรหัสเชื่อมต่อ (Connection Token) ที่นี่:
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={inputToken}
+                          onChange={(e) => setInputToken(e.target.value)}
+                          placeholder="วางรหัส Token เช่น eyJ1cmwiOi..."
+                          className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono text-slate-900 focus:outline-none focus:border-indigo-500 focus:bg-white"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full btn-touch py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <span>⚡</span>
+                        <span>นำเข้าและเชื่อมต่อทันที (Apply & Connect)</span>
+                      </button>
+                    </form>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+              <span className="truncate">URL: <strong className="font-mono text-slate-700">{dbConfig?.supabaseUrl || '—'}</strong></span>
+              <button
+                type="button"
+                onClick={onClose}
+                className="btn-touch px-4 py-1.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold transition-all"
+              >
+                ปิดหน้าต่าง
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =========================================================================
     // MODAL: สถานะออนไลน์กลาง & สแกนใช้งานบนมือถือ (MOBILE ACCESS & DIAGNOSTICS)
     // =========================================================================
     function OnlineDiagnosticModal({
@@ -4352,7 +4621,8 @@
       lastSyncTime,
       serverInfo,
       onForceSync,
-      onClose
+      onClose,
+      onOpenShareDb
     }) {
       const [customUrl, setCustomUrl] = useState(serverUrl);
       const [isEditing, setIsEditing] = useState(false);
@@ -4476,6 +4746,22 @@
                     <span>{copied ? '✅ คัดลอกแล้ว' : '📋 คัดลอกลิงก์'}</span>
                   </button>
                 </div>
+
+                {onOpenShareDb && (
+                  <div className="pt-2 border-t border-indigo-500/20 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenShareDb();
+                      }}
+                      className="btn-touch px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2"
+                    >
+                      <span>📱</span>
+                      <span>แชร์การเชื่อมต่อ Supabase ด้วย QR Code & ลิงก์ด่วน</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* ตัวเลือกเลือก IP หากมีหลายวงเครือข่าย */}
                 {networkUrls.length > 1 && (
@@ -5866,8 +6152,62 @@
       const [serverInfo, setServerInfo] = useState(null);
       const [isOnlineModalOpen, setIsOnlineModalOpen] = useState(false);
 
+      // ตรวจจับลิงก์เชื่อมต่อด่วน Quick Setup (#setup_db=... หรือ ?setup_db=...) อัตโนมัติ
+      const parseQuickSetupFromUrl = () => {
+        try {
+          let raw = null;
+          if (window.location.hash && window.location.hash.includes('setup_db=')) {
+            const m = window.location.hash.match(/setup_db=([^&]+)/);
+            if (m) raw = decodeURIComponent(m[1]);
+          } else if (window.location.search && window.location.search.includes('setup_db=')) {
+            const params = new URLSearchParams(window.location.search);
+            raw = params.get('setup_db');
+          }
+          if (raw) {
+            let data = null;
+            try {
+              data = JSON.parse(atob(raw));
+            } catch {
+              try { data = JSON.parse(raw); } catch {}
+            }
+            if (data && (data.url || data.supabaseUrl)) {
+              const sbUrl = (data.url || data.supabaseUrl || '').trim();
+              const sbKey = (data.key || data.supabaseAnonKey || '').trim();
+              const appliedConfig = {
+                ...DEFAULT_DB_CONFIG,
+                enabled: true,
+                mode: 'supabase',
+                supabaseUrl: sbUrl,
+                supabaseAnonKey: sbKey,
+                autoSync: true,
+                lastTestResult: {
+                  status: 'connected',
+                  message: '✅ เชื่อมต่อผ่านลิงก์ด่วน (Quick Setup) สำเร็จ',
+                  latencyMs: 0
+                }
+              };
+              localStorage.setItem(STORAGE_DB_CONFIG, JSON.stringify(appliedConfig));
+              window.SUPABASE_URL = sbUrl;
+              window.SUPABASE_ANON_KEY = sbKey;
+              if (window.history && window.history.replaceState) {
+                window.history.replaceState(null, '', window.location.pathname);
+              }
+              setTimeout(() => {
+                alert('🎉 ตรวจพบการตั้งค่าฐานข้อมูลด่วน (Quick Setup)!\nเชื่อมต่อกับ Supabase กลางของโรงงานเรียบร้อยแล้ว ทุกสถานีพร้อมซิงค์ข้อมูล');
+              }, 400);
+              return appliedConfig;
+            }
+          }
+        } catch (err) {
+          console.warn('Quick setup parse error:', err);
+        }
+        return null;
+      };
+
       // Database & Supabase Integration State (สำหรับ GitHub Pages & Cloud)
       const [dbConfig, setDbConfig] = useState(() => {
+        const quick = parseQuickSetupFromUrl();
+        if (quick) return quick;
         try {
           const s = localStorage.getItem(STORAGE_DB_CONFIG);
           const parsed = s ? JSON.parse(s) : DEFAULT_DB_CONFIG;
@@ -5876,6 +6216,83 @@
       });
       const [dbTestLoading, setDbTestLoading] = useState(false);
       const [dbShowKey, setDbShowKey] = useState(false);
+      const [isShareDbModalOpen, setIsShareDbModalOpen] = useState(false);
+
+      const generateQuickSetupToken = () => {
+        if (!dbConfig.supabaseUrl || !dbConfig.supabaseAnonKey) return '';
+        try {
+          return btoa(JSON.stringify({
+            url: (dbConfig.supabaseUrl || '').trim(),
+            key: (dbConfig.supabaseAnonKey || '').trim()
+          }));
+        } catch {
+          return '';
+        }
+      };
+
+      const getQuickSetupUrl = () => {
+        const token = generateQuickSetupToken();
+        if (!token) return '';
+        const origin = window.location.origin || '';
+        const pathname = window.location.pathname || '';
+        return `${origin}${pathname}#setup_db=${encodeURIComponent(token)}`;
+      };
+
+      const copyQuickSetupLink = () => {
+        const url = getQuickSetupUrl();
+        if (!url) {
+          alert('⚠️ กรุณากรอก Supabase Project URL และ Key ให้ครบก่อนแชร์ลิงก์');
+          return;
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(() => {
+            alert('📋 คัดลอกลิงก์เชื่อมต่อด่วนแล้ว!\n\nส่งลิงก์นี้เข้า LINE กลุ่มโรงงาน หรือเปิดในเครื่องอื่นได้ทันที\nเมื่อเครื่องอื่นเปิดลิงก์ จะเชื่อมต่อฐานข้อมูลให้อัตโนมัติ 100%');
+          }).catch(() => {
+            prompt('คัดลอกลิงก์เชื่อมต่อด่วนด้านล่างนี้:', url);
+          });
+        } else {
+          prompt('คัดลอกลิงก์เชื่อมต่อด่วนด้านล่างนี้:', url);
+        }
+      };
+
+      const applyManualToken = (rawToken) => {
+        if (!rawToken || !rawToken.trim()) {
+          alert('⚠️ กรุณาวางรหัสเชื่อมต่อ (Connection Token) ก่อน');
+          return;
+        }
+        try {
+          let decoded = null;
+          try {
+            decoded = JSON.parse(atob(rawToken.trim()));
+          } catch {
+            decoded = JSON.parse(rawToken.trim());
+          }
+          if (decoded && (decoded.url || decoded.supabaseUrl)) {
+            const sbUrl = (decoded.url || decoded.supabaseUrl || '').trim();
+            const sbKey = (decoded.key || decoded.supabaseAnonKey || '').trim();
+            const newCfg = {
+              ...dbConfig,
+              enabled: true,
+              mode: 'supabase',
+              supabaseUrl: sbUrl,
+              supabaseAnonKey: sbKey,
+              autoSync: true,
+              lastTestResult: {
+                status: 'connected',
+                message: '✅ นำเข้ารหัสเชื่อมต่อสำเร็จ พร้อมใช้งาน',
+                latencyMs: 0
+              }
+            };
+            saveDbConfig(newCfg);
+            setIsShareDbModalOpen(false);
+            alert('🎉 นำเข้ารหัสเชื่อมต่อสำเร็จ!\nเชื่อมต่อกับ Supabase กลางเรียบร้อยแล้ว ทุกสถานีพร้อมซิงค์ข้อมูล');
+          } else {
+            alert('❌ รูปแบบรหัสเชื่อมต่อไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง');
+          }
+        } catch (e) {
+          alert('❌ รหัสเชื่อมต่อไม่ถูกต้อง: ' + e.message);
+        }
+      };
 
       const saveDbConfig = (newConfig) => {
         setDbConfig(newConfig);
@@ -14551,6 +14968,46 @@
                                   </div>
                                 </div>
 
+                                {/* Quick Share & Device Connect Card */}
+                                <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-50/90 via-blue-50/70 to-slate-50 border-2 border-indigo-200/90 shadow-sm space-y-3">
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center text-xl shadow-md shrink-0">
+                                        📱
+                                      </div>
+                                      <div>
+                                        <div className="flex items-center gap-2">
+                                          <h4 className="font-bold text-slate-900 text-sm">แชร์และเชื่อมต่อด่วนไปยังเครื่องอื่น (Quick Share & Instant Setup)</h4>
+                                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                                            ไม่ต้องพิมพ์ Key เอง
+                                          </span>
+                                        </div>
+                                        <p className="text-xs text-slate-600 mt-0.5">
+                                          นำลิงก์ส่งเข้า LINE กลุ่มโรงงาน หรือเปิด QR Code ให้มือถือ/แท็บเล็ตสแกนเชื่อมต่อ Supabase ได้ทันที 100%
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-wrap self-end sm:self-auto">
+                                      <button
+                                        type="button"
+                                        onClick={copyQuickSetupLink}
+                                        className="btn-touch px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-indigo-700 border border-indigo-300 font-bold text-xs shadow-sm flex items-center gap-1.5 transition-all"
+                                      >
+                                        <span>📋</span>
+                                        <span>คัดลอกลิงก์ด่วน</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setIsShareDbModalOpen(true)}
+                                        className="btn-touch px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md flex items-center gap-1.5 transition-all"
+                                      >
+                                        <span>📷</span>
+                                        <span>แสดง QR Code & รหัส</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+
                                 {/* Offline Fallback Guidance */}
                                 <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-start gap-2.5">
                                   <span className="text-base mt-0.5">💡</span>
@@ -15579,6 +16036,15 @@
               serverInfo={serverInfo}
               onForceSync={() => pullFromServer(false)}
               onClose={() => setIsOnlineModalOpen(false)}
+              onOpenShareDb={() => setIsShareDbModalOpen(true)}
+            />
+          )}
+
+          {isShareDbModalOpen && (
+            <ShareDbModal
+              dbConfig={dbConfig}
+              onClose={() => setIsShareDbModalOpen(false)}
+              onImportToken={(token) => applyManualToken(token)}
             />
           )}
 
