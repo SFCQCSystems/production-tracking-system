@@ -1719,6 +1719,17 @@
                 </div>
               </div>
 
+              {/* หมายเหตุของใบงาน (ถ้ามี) */}
+              {job.note && (
+                <div className="bg-teal-50 border border-teal-200/80 rounded-xl p-3 text-xs text-teal-900 flex items-start gap-2 shadow-xs">
+                  <span className="text-base shrink-0">📝</span>
+                  <div>
+                    <span className="font-bold block">หมายเหตุ ({isBlending ? 'สถานีผสม' : 'ไลน์บรรจุ'}):</span>
+                    <span className="leading-relaxed whitespace-pre-wrap">{job.note}</span>
+                  </div>
+                </div>
+              )}
+
               {/* Detailed Timeline Table */}
               {isBlending ? (
                 <div className="space-y-3">
@@ -1763,6 +1774,12 @@
                                   {step.targetTank && (
                                     <div className="text-[10px] text-amber-800 font-mono font-bold mt-0.5">
                                       ถังเป้าหมาย: {step.targetTank}
+                                    </div>
+                                  )}
+                                  {step.note && (
+                                    <div className="text-[11px] text-blue-900 bg-blue-50/80 border border-blue-200/80 rounded-md px-2 py-0.5 mt-1 font-sans flex items-start gap-1">
+                                      <span className="shrink-0">📝</span>
+                                      <span>หมายเหตุ: <strong>{step.note}</strong></span>
                                     </div>
                                   )}
                                 </td>
@@ -2736,10 +2753,11 @@
       const [item, setItem] = useState('');
       const [line, setLine] = useState('');
       const [oilBatch, setOilBatch] = useState('');
+      const [note, setNote] = useState('');
       const [isSearching, setIsSearching] = useState(false);
       const [searchStatus, setSearchStatus] = useState(null);
 
-      // ดึงรายชื่อ Batch น้ำมันผสมที่พร้อมใช้งานจาก Blending
+      // ดึงรายชื่อ Batch น้ำมันผสมที่พร้อมใช้งานจาก Blending สำหรับ autocomplete
       const availableBlendBatches = useMemo(() => {
         return (blendingJobs || []).map(j => ({
           batchNo: j.batchNo,
@@ -2829,7 +2847,8 @@
                 fillingCompletedAt: null,
                 createdAt: new Date().toISOString(),
                 startedAt: null,
-                completedAt: null
+                completedAt: null,
+                note: note.trim()
               };
               onSave(newJob);
               onClose();
@@ -2920,28 +2939,21 @@
                 <span className="text-[11px] text-slate-500 mt-1 block">
                   💡 กรอกเลข Batch ของน้ำมันผสมต้นทาง เช่น <strong className="text-teal-700 font-mono">B26......</strong> หรือ <strong className="text-teal-700 font-mono">K154......</strong>
                 </span>
+              </div>
 
-                {availableBlendBatches.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-slate-100">
-                    <span className="text-[11px] text-slate-500 font-semibold block mb-1">คลิกเลือกจาก Batch งานผสมในระบบ:</span>
-                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-                      {availableBlendBatches.map((b, idx) => (
-                        <button
-                          key={b.batchNo + '-' + idx}
-                          type="button"
-                          onClick={() => setOilBatch(b.batchNo)}
-                          className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold transition-all border ${
-                            oilBatch === b.batchNo
-                              ? 'bg-teal-600 text-white border-teal-700 shadow-xs'
-                              : 'bg-slate-100 hover:bg-teal-50 text-slate-700 border-slate-200 hover:border-teal-300'
-                          }`}
-                        >
-                          {b.batchNo} {b.blenderCode ? `(${b.blenderCode})` : ''}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
+              {/* 5. หมายเหตุสำหรับไลน์บรรจุ (Optional) */}
+              <div>
+                <label className="font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
+                  <span>📝</span>
+                  <span>หมายเหตุ (ถ้ามี):</span>
+                </label>
+                <textarea
+                  rows="2"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="ระบุหมายเหตุสำหรับงานบรรจุ เช่น ขนาดบรรจุภัณฑ์, ข้อกำชับหน้าไลน์, หรือข้อสังเกต..."
+                  className="w-full bg-slate-50 border border-slate-300 focus:bg-white rounded-xl p-2.5 text-slate-900 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all resize-y"
+                />
               </div>
 
               <div className="flex gap-2.5 pt-3 border-t border-slate-100">
@@ -2966,6 +2978,7 @@
       const [productionNo, setProductionNo] = useState(job.productionNo || '');
       const [batchNo, setBatchNo] = useState(moduleType === 'BLENDING' ? (job.batchNo || '') : (job.bulkOilBatchNo || ''));
       const [productName, setProductName] = useState(moduleType === 'BLENDING' ? (job.oilName || '') : (job.itemName || ''));
+      const [jobNote, setJobNote] = useState(job.note || '');
       const [reason, setReason] = useState('');
       const [errorMsg, setErrorMsg] = useState('');
 
@@ -2979,6 +2992,7 @@
         const cleanBatch = batchNo.trim();
         const cleanName = productName.trim();
         const cleanReason = reason.trim();
+        const cleanNote = jobNote.trim();
 
         if (!cleanProd) {
           setErrorMsg('กรุณาระบุเลข Production No.');
@@ -3005,6 +3019,7 @@
           newProductionNo: cleanProd,
           newBatchNo: cleanBatch,
           newProductName: cleanName,
+          newNote: cleanNote,
           reason: cleanReason
         });
       };
@@ -3121,6 +3136,22 @@
                   onChange={(e) => setProductName(e.target.value)}
                   placeholder="เช่น AMONE SOLUBLE OIL 140 SP"
                   className="w-full bg-slate-50 border border-slate-300 focus:bg-white focus:border-amber-500 rounded-xl p-2.5 text-slate-900 font-bold text-sm outline-none transition-colors"
+                />
+              </div>
+
+              {/* หมายเหตุสำหรับใบงาน */}
+              <div>
+                <label className="font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
+                  <span>📝</span>
+                  <span>หมายเหตุ ({moduleType === 'BLENDING' ? 'งานผสม' : 'งานบรรจุ'}):</span>
+                </label>
+                <textarea
+                  rows="2"
+                  disabled={!canSubmit}
+                  value={jobNote}
+                  onChange={(e) => setJobNote(e.target.value)}
+                  placeholder="ระบุหมายเหตุสำหรับใบงาน เช่น รายละเอียดเพิ่มเติม, ข้อกำชับ, หรือข้อสังเกต..."
+                  className="w-full bg-slate-50 border border-slate-300 focus:bg-white focus:border-amber-500 rounded-xl p-2.5 text-slate-900 text-xs outline-none transition-colors"
                 />
               </div>
 
@@ -3558,6 +3589,11 @@
                                 <td className="p-2 font-medium text-slate-900">
                                   {step.name}
                                   {step.sub && <div className="text-[10px] text-slate-500 font-sans">{step.sub}</div>}
+                                  {step.note && (
+                                    <div className="text-[10px] text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 mt-0.5 font-sans inline-block">
+                                      📝 {step.note}
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="p-2 font-mono text-slate-600">
                                   {step.targetTank ? `ถัง ${step.targetTank}` : '—'}
@@ -6425,11 +6461,11 @@
               }
 
               const sRow = rows.find((r) => r.collection_name === 'sapStagingOrders');
-              if (sRow && Array.isArray(sRow.data) && sRow.data.length > 0) {
+              if (sRow && Array.isArray(sRow.data)) {
                 setSapStagingOrders(sRow.data);
                 localStorage.setItem(STORAGE_SAP_STAGING_ORDERS, JSON.stringify(sRow.data));
-              } else if (!sRow || !Array.isArray(sRow.data) || sRow.data.length === 0) {
-                // หากใน Supabase ยังไม่มีข้อมูล แต่ในเครื่องนี้เคยอัปโหลดไว้ ให้ดันขึ้น Supabase ทันที
+              } else if (!sRow) {
+                // หากใน Supabase ยังไม่เคยมีแถว sapStagingOrders มาก่อน แต่ในเครื่องนี้เคยอัปโหลดไว้ ให้ดันขึ้น Supabase ทันที
                 try {
                   const localStr = localStorage.getItem(STORAGE_SAP_STAGING_ORDERS);
                   if (localStr) {
@@ -7739,7 +7775,7 @@
       // =========================================================================
       // BUSINESS WORKFLOW: UPDATE JOB IDENTIFIERS (CASCADE UPDATE) & CANCEL JOB
       // =========================================================================
-      const handleUpdateJobIdentifiers = ({ moduleType, jobId, newProductionNo, newBatchNo, newProductName, reason }) => {
+      const handleUpdateJobIdentifiers = ({ moduleType, jobId, newProductionNo, newBatchNo, newProductName, newNote, reason }) => {
         const nowIso = new Date().toISOString();
         const editorName = currentUser ? `${currentUser.fullName} (${currentUser.role})` : 'เจ้าหน้าที่หน้างาน';
 
@@ -7769,6 +7805,7 @@
                 productionNo: newProductionNo,
                 batchNo: newBatchNo,
                 oilName: newProductName,
+                ...(newNote !== undefined ? { note: newNote } : {}),
                 editHistory: [...(j.editHistory || []), editLog]
               };
             }
@@ -7836,11 +7873,6 @@
           const oldBatch = targetJob.bulkOilBatchNo;
 
           // 1. Update fillingJobs
-          const updatedFilling = fillingJobs.map((f) => {
-            if (j => j.id === jobId) {
-              // handled below
-            }
-          });
           const nextFilling = fillingJobs.map((f) => {
             if (f.id === jobId) {
               const editLog = {
@@ -7859,6 +7891,7 @@
                 productionNo: newProductionNo,
                 bulkOilBatchNo: newBatchNo,
                 itemName: newProductName,
+                ...(newNote !== undefined ? { note: newNote } : {}),
                 editHistory: [...(f.editHistory || []), editLog]
               };
             }
@@ -10655,7 +10688,14 @@
                                         return (
                                           <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50/80">
                                             <td className="p-2 font-mono font-bold text-slate-500">{step.stepNumber || idx + 1}</td>
-                                            <td className="p-2 font-medium text-slate-900">{step.name}</td>
+                                            <td className="p-2 font-medium text-slate-900">
+                                              {step.name}
+                                              {step.note && (
+                                                <div className="text-[10px] text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 mt-0.5 font-sans">
+                                                  📝 {step.note}
+                                                </div>
+                                              )}
+                                            </td>
                                             <td className="p-2 font-mono text-slate-600">{step.targetTank ? `ถัง ${step.targetTank}` : '—'}</td>
                                             <td className="p-2 text-center">
                                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${st.color}`}>
@@ -10803,6 +10843,13 @@
                                             : fj.fillingStartedAt ? `${calcDurationMinutes(fj.fillingStartedAt, currentNow)} นาที (กำลังบรรจุ)` : '—'}
                                         </span>
                                       </div>
+
+                                      {fj.note && (
+                                        <div className="text-[11px] text-teal-900 bg-teal-50 border border-teal-200 rounded-lg p-2 font-sans flex items-start gap-1.5">
+                                          <span className="shrink-0">📝</span>
+                                          <span>หมายเหตุ: <strong>{fj.note}</strong></span>
+                                        </div>
+                                      )}
                                     </div>
                                   ))}
                                 </div>
@@ -11724,6 +11771,41 @@
                                   </div>
                                 )}
 
+                                {/* ช่องหมายเหตุสำหรับขั้นตอน Mix Base (สเต็ป 3) และ Blending FG (สเต็ป 4) */}
+                                {(step.stepNumber === 3 || step.stepNumber === 4 || step.name?.includes('Mix Base') || step.name?.includes('Blending FG')) && (
+                                  <div className="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                                      <label className="text-slate-700 font-bold text-xs flex items-center gap-1.5">
+                                        <span>📝</span>
+                                        <span>หมายเหตุสำหรับขั้นตอนนี้ {step.stepNumber === 3 ? '(Mix Base)' : '(Blending FG)'}:</span>
+                                      </label>
+                                      {step.note && (
+                                        <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                          บันทึกแล้ว
+                                        </span>
+                                      )}
+                                    </div>
+                                    <textarea
+                                      rows="2"
+                                      value={step.note || ''}
+                                      disabled={currentBlenderJob.jobStatus === 'ดำเนินการเสร็จสิ้น'}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        const updatedSteps = currentBlenderJob.steps.map((s) =>
+                                          s.stepNumber === step.stepNumber ? { ...s, note: val } : s
+                                        );
+                                        saveBlending(
+                                          blendingJobs.map((j) =>
+                                            j.id === currentBlenderJob.id ? { ...j, steps: updatedSteps } : j
+                                          )
+                                        );
+                                      }}
+                                      placeholder={`ระบุหมายเหตุ เช่น อุณหภูมิการกวน, สัดส่วนเพิ่มเติม, ข้อสังเกต หรือปัญหาที่พบในขั้นตอน ${step.stepNumber === 3 ? 'Mix Base' : 'Blending FG'}...`}
+                                      className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all shadow-2xs resize-y"
+                                    />
+                                  </div>
+                                )}
+
                                 {/* แจ้งเตือนเมื่อแล็บสั่ง Resample หรือ Reject */}
                                 {isResample && latestStepSample && (
                                   <div className="mt-2.5 p-2.5 rounded-xl bg-orange-950/60 border border-orange-600 text-orange-200 text-xs">
@@ -11771,6 +11853,7 @@
                                     {!step.isMandatory && (
                                       <button
                                         onClick={() => {
+                                          if (!confirm(`ยืนยันการข้ามขั้นตอนที่ ${step.stepNumber}: ${cleanStepName} หรือไม่?`)) return;
                                           const updatedSteps = currentBlenderJob.steps.map((s) => s.stepNumber === step.stepNumber ? { ...s, status: 'skipped' } : s);
                                           saveBlending(blendingJobs.map((j) => j.id === currentBlenderJob.id ? { ...j, steps: updatedSteps } : j));
                                         }}
@@ -11792,40 +11875,90 @@
                                   </>
                                 )}
 
+                                {/* กรณีที่เคยกดข้ามไป สามารถยกเลิกและนำกลับมาทำใหม่ได้ */}
+                                {step.status === 'skipped' && (
+                                  <div className="flex items-center gap-2.5 flex-wrap">
+                                    <span className="text-xs text-slate-500 font-medium italic">
+                                      (ขั้นตอนนี้ถูกข้ามการดำเนินการ)
+                                    </span>
+                                    {currentBlenderJob.jobStatus !== 'ดำเนินการเสร็จสิ้น' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const updatedSteps = currentBlenderJob.steps.map((s) =>
+                                            s.stepNumber === step.stepNumber
+                                              ? { ...s, status: 'idle', startedAt: null, finishedAt: null }
+                                              : s
+                                          );
+                                          saveBlending(blendingJobs.map((j) => j.id === currentBlenderJob.id ? { ...j, steps: updatedSteps } : j));
+                                        }}
+                                        className="btn-touch px-3.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+                                        title="นำขั้นตอนนี้กลับมาทำใหม่"
+                                      >
+                                        <span>↩️</span>
+                                        <span>ยกเลิกการข้าม / นำกลับมาทำใหม่</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+
                                 {/* ปุ่มส่งตัวอย่างเข้าแลป หรือ ปุ่มเสร็จสิ้นขั้นตอน (กรณีไม่ต้องตรวจแล็บ) */}
                                 {(isStepRunning || isResample || isRejected) && (
-                                  step.requiresLab === false ? (
-                                    <button
-                                      onClick={() => {
-                                        const nowIso = new Date().toISOString();
-                                        const updatedSteps = currentBlenderJob.steps.map((s) =>
-                                          s.stepNumber === step.stepNumber
-                                            ? {
-                                                ...s,
-                                                status: 'completed',
-                                                finishedAt: nowIso,
-                                                durationMinutes: calcDurationMinutes(s.startedAt, nowIso)
-                                              }
-                                            : s
-                                        );
-                                        saveBlending(blendingJobs.map((j) => j.id === currentBlenderJob.id ? { ...j, steps: updatedSteps } : j));
-                                      }}
-                                      className="btn-touch px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-900/30 flex items-center justify-center gap-2"
-                                    >
-                                      <span>✓ เสร็จสิ้นขั้นตอนนี้ (ไม่ต้องตรวจแล็บ)</span>
-                                    </button>
-                                  ) : (
-                                    <button
-                                      onClick={() => handleSendSampleToLab('BLENDING', currentBlenderJob, sampleTag, step.stepNumber)}
-                                      className={`btn-touch px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-2 ${
-                                        isResample
-                                          ? 'bg-orange-600 hover:bg-orange-500 text-white animate-bounce shadow-orange-900/40'
-                                          : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/30'
-                                      }`}
-                                    >
-                                      <span>🧪 ปุ่มส่งตัวอย่างเข้าแลป {isResample ? `(รอบใหม่ที่ ${stepHistory.length + 1})` : ''}</span>
-                                    </button>
-                                  )
+                                  <>
+                                    {step.requiresLab === false ? (
+                                      <button
+                                        onClick={() => {
+                                          const nowIso = new Date().toISOString();
+                                          const updatedSteps = currentBlenderJob.steps.map((s) =>
+                                            s.stepNumber === step.stepNumber
+                                              ? {
+                                                  ...s,
+                                                  status: 'completed',
+                                                  finishedAt: nowIso,
+                                                  durationMinutes: calcDurationMinutes(s.startedAt, nowIso)
+                                                }
+                                              : s
+                                          );
+                                          saveBlending(blendingJobs.map((j) => j.id === currentBlenderJob.id ? { ...j, steps: updatedSteps } : j));
+                                        }}
+                                        className="btn-touch px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-900/30 flex items-center justify-center gap-2"
+                                      >
+                                        <span>✓ เสร็จสิ้นขั้นตอนนี้ (ไม่ต้องตรวจแล็บ)</span>
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => handleSendSampleToLab('BLENDING', currentBlenderJob, sampleTag, step.stepNumber)}
+                                        className={`btn-touch px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-2 ${
+                                          isResample
+                                            ? 'bg-orange-600 hover:bg-orange-500 text-white animate-bounce shadow-orange-900/40'
+                                            : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/30'
+                                        }`}
+                                      >
+                                        <span>🧪 ปุ่มส่งตัวอย่างเข้าแลป {isResample ? `(รอบใหม่ที่ ${stepHistory.length + 1})` : ''}</span>
+                                      </button>
+                                    )}
+
+                                    {/* ปุ่มยกเลิกการเริ่มขั้นตอน (กรณีเผลอกดเริ่มผิด) */}
+                                    {isStepRunning && !isWaitingLab && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (!confirm(`คุณต้องการยกเลิกการเริ่มขั้นตอนที่ ${step.stepNumber} และเปลี่ยนกลับเป็นรอดำเนินการหรือไม่?`)) return;
+                                          const updatedSteps = currentBlenderJob.steps.map((s) =>
+                                            s.stepNumber === step.stepNumber
+                                              ? { ...s, status: 'idle', startedAt: null, finishedAt: null }
+                                              : s
+                                          );
+                                          saveBlending(blendingJobs.map((j) => j.id === currentBlenderJob.id ? { ...j, steps: updatedSteps } : j));
+                                        }}
+                                        className="btn-touch px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 text-xs font-bold transition-all shadow-sm flex items-center gap-1"
+                                        title="ยกเลิกการเริ่มขั้นตอนนี้"
+                                      >
+                                        <span>⏹️</span>
+                                        <span>ยกเลิกเริ่มขั้นตอนนี้</span>
+                                      </button>
+                                    )}
+                                  </>
                                 )}
 
                                 {isWaitingLab && (
@@ -11890,9 +12023,30 @@
                                 )}
 
                                 {isPassed && (
-                                  <div className="text-emerald-400 font-bold text-xs py-1 flex items-center gap-1.5">
-                                    <span>✓</span>
-                                    <span>ขั้นตอนนี้เสร็จสมบูรณ์เรียบร้อย {step.status === 'lab_passed' ? '(แล็บตรวจผ่านแล้ว)' : ''}</span>
+                                  <div className="flex flex-wrap items-center justify-between gap-2 w-full pt-1">
+                                    <div className="text-emerald-700 font-bold text-xs py-1 flex items-center gap-1.5">
+                                      <span>✓</span>
+                                      <span>ขั้นตอนนี้เสร็จสมบูรณ์เรียบร้อย {step.status === 'lab_passed' ? '(แล็บตรวจผ่านแล้ว)' : ''}</span>
+                                    </div>
+                                    {currentBlenderJob.jobStatus !== 'ดำเนินการเสร็จสิ้น' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (!confirm(`ต้องการนำขั้นตอนที่ ${step.stepNumber}: ${cleanStepName} กลับมาทำใหม่หรือไม่?\n(สถานะจะเปลี่ยนกลับเป็นกำลังดำเนินการ)`)) return;
+                                          const updatedSteps = currentBlenderJob.steps.map((s) =>
+                                            s.stepNumber === step.stepNumber
+                                              ? { ...s, status: 'in_progress', finishedAt: null }
+                                              : s
+                                          );
+                                          saveBlending(blendingJobs.map((j) => j.id === currentBlenderJob.id ? { ...j, steps: updatedSteps } : j));
+                                        }}
+                                        className="btn-touch px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-amber-50 text-slate-600 hover:text-amber-800 border border-slate-300 hover:border-amber-300 text-[11px] font-bold transition-all flex items-center gap-1"
+                                        title="นำขั้นตอนนี้กลับมาทำใหม่"
+                                      >
+                                        <span>↩️</span>
+                                        <span>ย้อนกลับมาทำใหม่</span>
+                                      </button>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -12582,6 +12736,34 @@
                           );
                         })()}
 
+                      {/* ช่องหมายเหตุสำหรับไลน์บรรจุ (Filling Line Remarks / Note) */}
+                      <div className="bg-slate-950 border-2 border-slate-800 rounded-xl p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-white font-bold text-sm flex items-center gap-2">
+                            <span>📝</span>
+                            <span>หมายเหตุงานบรรจุ ({currentFillingJob.lineCode}):</span>
+                          </label>
+                          {currentFillingJob.note && (
+                            <span className="text-[10px] text-teal-300 font-bold bg-teal-950/80 px-2 py-0.5 rounded border border-teal-700/80">
+                              ✓ บันทึกแล้ว
+                            </span>
+                          )}
+                        </div>
+                        <textarea
+                          rows="2"
+                          value={currentFillingJob.note || ''}
+                          disabled={currentFillingJob.jobStatus === 'ดำเนินการเสร็จสิ้น'}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            saveFilling(
+                              fillingJobs.map((f) => (f.id === currentFillingJob.id ? { ...f, note: val } : f))
+                            );
+                          }}
+                          placeholder="พิมพ์บันทึกหมายเหตุ เช่น ขนาดภาชนะ/ลัง, หมายเลขล็อตบรรจุภัณฑ์, ข้อกำชับ หรือปัญหาที่พบ..."
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition-all resize-y"
+                        />
+                      </div>
+
                       {/* Interlock หัวจ่าย & ปุ่มจบงาน */}
                       {(() => {
                         const latestLab = getLatestSample('FILLING', currentFillingJob.productionNo, 'First Fill (ถังแรก)', currentFillingJob.bulkOilBatchNo);
@@ -12878,6 +13060,11 @@
                                 <td className="px-3 py-3">
                                   <div className="font-bold text-slate-900 text-xs group-hover:text-teal-700 transition-colors">{f.itemName}</div>
                                   <div className="text-[11px] text-slate-500 font-mono">P/N: {f.productionNo}</div>
+                                  {f.note && (
+                                    <div className="text-[10px] text-teal-800 bg-teal-50 border border-teal-200 rounded px-1.5 py-0.5 mt-0.5 font-sans inline-block">
+                                      📝 {f.note}
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 font-mono text-blue-700 font-bold">{f.bulkOilBatchNo}</td>
                                 <td className="px-2 py-3 text-center text-xs font-mono">
@@ -13085,6 +13272,11 @@
                                   <td className="px-3 py-3">
                                     <div className="font-bold text-white text-xs">{f.itemName}</div>
                                     <div className="text-[11px] text-slate-400 font-mono">P/N: {f.productionNo}</div>
+                                    {f.note && (
+                                      <div className="text-[10px] text-teal-300 bg-teal-950/80 border border-teal-700/80 rounded px-1.5 py-0.5 mt-0.5 font-sans inline-block">
+                                        📝 {f.note}
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="px-3 py-3 font-mono text-blue-300 font-bold">{f.bulkOilBatchNo}</td>
                                   <td className="px-2 py-3 text-center text-xs font-mono">
