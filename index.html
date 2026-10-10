@@ -1978,10 +1978,93 @@
     // MODAL COMPONENTS (แยกเป็น Component อิสระเพื่อไม่ให้ละเมิดกฎ React Hooks)
     // =========================================================================
 
-    function LabActionModal({ modalData, onClose, onConfirm, adminConfig, currentUser }) {
+    // ฟังก์ชันค้นหาค่า Density ของถังผสม (Blender) ที่ผ่านการอนุมัติแล้วของ Batch นั้น
+    function getBlenderDensityForBatch(targetBatch, targetProdNo, samples = [], jobs = []) {
+      const cleanBatch = targetBatch ? String(targetBatch).trim().toLowerCase() : '';
+      const cleanProd = targetProdNo ? String(targetProdNo).trim().toLowerCase() : '';
+      if (!cleanBatch && !cleanProd) return null;
+
+      // 1. ค้นหาโดยอิงจากเลข Batch น้ำมันผสมต้นทางเป็นหลักสำคัญที่สุด (เนื่องจาก Blending และ Filling ใช้เลข Production No. คนละเลขกัน)
+      if (cleanBatch) {
+        const approvedByBatch = (samples || []).filter((s) => {
+          if (s.sourceModule !== 'BLENDING' || s.labAction !== 'APPROVE') return false;
+          if (s.density30c === null || s.density30c === undefined || s.density30c === '') return false;
+          const sBatch = s.batchNo ? String(s.batchNo).trim().toLowerCase() : '';
+          return sBatch === cleanBatch;
+        });
+
+        if (approvedByBatch.length > 0) {
+          // ให้ความสำคัญกับตัวอย่าง Blending FG ก่อน
+          const fgSample = approvedByBatch.find((s) => s.sampleTag && s.sampleTag.includes('Blending FG'));
+          if (fgSample) return fgSample;
+          return approvedByBatch[approvedByBatch.length - 1];
+        }
+
+        // ค้นหาเชื่อมผ่าน blendingJobs โดยอิง Batch เดียวกัน
+        if (jobs && jobs.length > 0) {
+          const matchedJob = jobs.find((j) => {
+            const jBatch = j.batchNo ? String(j.batchNo).trim().toLowerCase() : '';
+            return jBatch === cleanBatch;
+          });
+          if (matchedJob) {
+            const jobSamples = (samples || []).filter((s) => {
+              if (s.sourceModule !== 'BLENDING' || s.labAction !== 'APPROVE') return false;
+              if (s.density30c === null || s.density30c === undefined || s.density30c === '') return false;
+              const sProd = s.productionNo ? String(s.productionNo).trim().toLowerCase() : '';
+              return sProd === String(matchedJob.productionNo).trim().toLowerCase();
+            });
+            if (jobSamples.length > 0) {
+              const fgSample = jobSamples.find((s) => s.sampleTag && s.sampleTag.includes('Blending FG'));
+              if (fgSample) return fgSample;
+              return jobSamples[jobSamples.length - 1];
+            }
+          }
+        }
+      }
+
+      // 2. เผื่อกรณีพิเศษที่ค้นด้วย Production No. ของงานผสมโดยตรง
+      if (cleanProd) {
+        const approvedByProd = (samples || []).filter((s) => {
+          if (s.sourceModule !== 'BLENDING' || s.labAction !== 'APPROVE') return false;
+          if (s.density30c === null || s.density30c === undefined || s.density30c === '') return false;
+          const sProd = s.productionNo ? String(s.productionNo).trim().toLowerCase() : '';
+          return sProd === cleanProd;
+        });
+        if (approvedByProd.length > 0) {
+          const fgSample = approvedByProd.find((s) => s.sampleTag && s.sampleTag.includes('Blending FG'));
+          if (fgSample) return fgSample;
+          return approvedByProd[approvedByProd.length - 1];
+        }
+      }
+
+      return null;
+    }
+
+    function LabActionModal({ modalData, onClose, onConfirm, adminConfig, currentUser, labSamples = [], blendingJobs = [] }) {
       const { sample, action } = modalData;
       const isFlushSample = sample.sampleTag && sample.sampleTag.toLowerCase().includes('flush');
-      const [density, setDensity] = useState(isFlushSample ? '' : '0.8752');
+      const isFillingSample = sample.sourceModule === 'FILLING';
+
+      // ดึงข้อมูลตัวอย่างถังผสมของ Batch เดียวกันที่ผ่านการอนุมัติแล้ว
+      const blenderApprovedSample = useMemo(() => {
+        if (!isFillingSample) return null;
+        return getBlenderDensityForBatch(sample.batchNo, sample.productionNo, labSamples, blendingJobs);
+      }, [isFillingSample, sample.batchNo, sample.productionNo, labSamples, blendingJobs]);
+
+      // ค่าเริ่มต้นของ Density:
+      // ถ้าเป็นตัวอย่างไลน์บรรจุ (First Fill) และมีผลจาก Blender ให้ดึงมาแสดงอัตโนมัติ
+      const [density, setDensity] = useState(() => {
+        if (sample.density30c) return String(sample.density30c);
+        if (isFillingSample && blenderApprovedSample?.density30c) return String(blenderApprovedSample.density30c);
+        return isFlushSample ? '' : '0.8752';
+      });
+
+      useEffect(() => {
+        if (isFillingSample && blenderApprovedSample?.density30c && !sample.density30c) {
+          setDensity(String(blenderApprovedSample.density30c));
+        }
+      }, [isFillingSample, blenderApprovedSample, sample.density30c]);
+
       const [inspectorName, setInspectorName] = useState(() => currentUser?.fullName || 'เจ้าหน้าที่ QC');
 
       const isOtherReason = (val) => {
@@ -2004,7 +2087,8 @@
           <div className="bg-white border border-slate-200/90 rounded-2xl max-w-lg w-full p-5 shadow-2xl space-y-4 text-slate-800">
             <form onSubmit={(e) => {
               e.preventDefault();
-              if (action === 'APPROVE' && !isFlushSample && !density) {
+              const resolvedDensityVal = density.trim() || (blenderApprovedSample?.density30c ? String(blenderApprovedSample.density30c) : '');
+              if (action === 'APPROVE' && !isFlushSample && !resolvedDensityVal) {
                 alert('⚠️ บังคับกรอกค่า Density @ 30°C สำหรับตัวอย่าง FG');
                 return;
               }
@@ -2013,7 +2097,7 @@
                 : selectedReason;
 
               onConfirm(sample.sampleId, action, {
-                density30c: (!isFlushSample && density) ? density : null,
+                density30c: (!isFlushSample && resolvedDensityVal) ? resolvedDensityVal : null,
                 reasonDescriptionTh: action !== 'APPROVE' ? finalReason : null,
                 comment,
                 inspectorId: inspectorName.trim() || currentUser?.fullName || 'เจ้าหน้าที่ QC'
@@ -2033,7 +2117,10 @@
                   <span>Production No.: <strong className="text-slate-900">{sample.productionNo}</strong></span>
                   <span className="text-[11px] text-slate-500 font-sans">ผู้ส่ง: <strong className="text-slate-800">{sample.sentBy || '—'}</strong></span>
                 </div>
-                <div>ตัวอย่าง: <span className="text-amber-800 font-bold">{sample.sampleTag} (รอบที่ {sample.roundNumber})</span></div>
+                <div className="flex justify-between">
+                  <div>ตัวอย่าง: <span className="text-amber-800 font-bold">{sample.sampleTag} (รอบที่ {sample.roundNumber})</span></div>
+                  {sample.batchNo && <div>Batch: <span className="text-blue-800 font-bold">{sample.batchNo}</span></div>}
+                </div>
               </div>
 
               <div>
@@ -2062,19 +2149,69 @@
                     </div>
                   </div>
                 ) : (
-                  <div>
-                    <label className="font-bold text-slate-700 block mb-1">
-                      ค่า Density @ 30°C (g/cm³): <span className="text-rose-500">* บังคับ</span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      value={density}
-                      onChange={(e) => setDensity(e.target.value)}
-                      required
-                      placeholder="เช่น 0.8752"
-                      className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-slate-900 font-mono text-base focus:bg-white focus:border-purple-500 focus:outline-none"
-                    />
+                  <div className="space-y-2">
+                    {/* ข้อมูลดึงจาก Blender กรณีเป็นตัวอย่างจากไลน์บรรจุ First Fill */}
+                    {isFillingSample && blenderApprovedSample && (
+                      <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl text-xs space-y-1 shadow-xs">
+                        <div className="font-bold text-emerald-800 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <span>✨</span>
+                            <span>ดึงค่า Density จากถังผสม (Blender) อัตโนมัติ</span>
+                          </span>
+                          <span className="bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded text-[11px] font-mono font-bold">
+                            {blenderApprovedSample.density30c} g/cm³
+                          </span>
+                        </div>
+                        <div className="text-slate-600 text-[11px] flex flex-wrap gap-x-3 gap-y-0.5 font-mono">
+                          <span>Batch ผสม: <strong className="text-slate-900">{blenderApprovedSample.batchNo || sample.batchNo}</strong></span>
+                          <span>ตัวอย่าง: <strong className="text-slate-900">{blenderApprovedSample.sampleTag || 'Blending FG'}</strong></span>
+                          {blenderApprovedSample.inspectorId && (
+                            <span className="font-sans">ผู้ตรวจแล็บถังผสม: <strong className="text-slate-900">{blenderApprovedSample.inspectorId}</strong></span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-emerald-700 italic">
+                          💡 เมื่อกดอนุมัติ ไลน์บรรจุจะเห็นผลผ่านพร้อมค่า Density นี้ทันที
+                        </div>
+                      </div>
+                    )}
+
+                    {isFillingSample && !blenderApprovedSample && (
+                      <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-xs space-y-1">
+                        <div className="font-bold text-amber-800 flex items-center gap-1.5">
+                          <span>ℹ️</span>
+                          <span>ไม่พบประวัติผลตรวจถังผสมของ Batch {sample.batchNo || '—'} ในระบบ</span>
+                        </div>
+                        <div className="text-slate-600 text-[11px]">
+                          สามารถระบุค่า Density @ 30°C เพื่อส่งผลอนุมัติไปยังไลน์บรรจุได้ตามปกติ
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-bold text-slate-700 block">
+                          ค่า Density @ 30°C (g/cm³): <span className="text-rose-500">* บังคับ</span>
+                        </label>
+                        {isFillingSample && blenderApprovedSample && (
+                          <button
+                            type="button"
+                            onClick={() => setDensity(String(blenderApprovedSample.density30c))}
+                            className="text-[11px] text-purple-600 hover:text-purple-800 font-bold underline cursor-pointer"
+                          >
+                            รีเซ็ตเป็นค่าจากถังผสม ({blenderApprovedSample.density30c})
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={density}
+                        onChange={(e) => setDensity(e.target.value)}
+                        required
+                        placeholder="เช่น 0.8752"
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-slate-900 font-mono text-base focus:bg-white focus:border-purple-500 focus:outline-none"
+                      />
+                    </div>
                   </div>
                 )
               )}
@@ -2159,11 +2296,21 @@
       );
     }
 
-    function LabOverrideModal({ modalData, onClose, onConfirm, adminConfig, currentUser }) {
+    function LabOverrideModal({ modalData, onClose, onConfirm, adminConfig, currentUser, labSamples = [], blendingJobs = [] }) {
       const { sample } = modalData;
       const isFlushSample = sample.sampleTag && sample.sampleTag.toLowerCase().includes('flush');
+      const isFillingSample = sample.sourceModule === 'FILLING';
+      const blenderApprovedSample = useMemo(() => {
+        if (!isFillingSample) return null;
+        return getBlenderDensityForBatch(sample.batchNo, sample.productionNo, labSamples, blendingJobs);
+      }, [isFillingSample, sample.batchNo, sample.productionNo, labSamples, blendingJobs]);
+
       const [newAction, setNewAction] = useState(sample.labAction || 'APPROVE');
-      const [newDensity, setNewDensity] = useState(sample.density30c ? String(sample.density30c) : (isFlushSample ? '' : '0.8752'));
+      const [newDensity, setNewDensity] = useState(() => {
+        if (sample.density30c) return String(sample.density30c);
+        if (isFillingSample && blenderApprovedSample?.density30c) return String(blenderApprovedSample.density30c);
+        return isFlushSample ? '' : '0.8752';
+      });
       const [inspectorName, setInspectorName] = useState(() => currentUser?.fullName || sample.inspectorId || 'เจ้าหน้าที่ QC');
 
       const isOtherReason = (val) => {
@@ -2272,9 +2419,20 @@
 
               {newAction === 'APPROVE' && !isFlushSample && (
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">
-                    ค่า Density @ 30°C (g/cm³): <span className="text-rose-500">* บังคับ</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-700 block">
+                      ค่า Density @ 30°C (g/cm³): <span className="text-rose-500">* บังคับ</span>
+                    </label>
+                    {isFillingSample && blenderApprovedSample && (
+                      <button
+                        type="button"
+                        onClick={() => setNewDensity(String(blenderApprovedSample.density30c))}
+                        className="text-[11px] text-purple-600 hover:text-purple-800 font-bold underline cursor-pointer"
+                      >
+                        ดึงค่าจากถังผสม ({blenderApprovedSample.density30c})
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="number"
                     step="0.0001"
@@ -2474,6 +2632,8 @@
                 packaging_order_no: cleanNo,
                 oil_name: found.productionName || found.oilName || found.oil_name || '',
                 material_code: found.itemCode || found.material_code || '',
+                bulk_oil_code: found.bulkOilCode || found.bulk_oil_code || '',
+                bulk_oil_name: found.bulkOilName || found.bulk_oil_name || '',
                 filling_batch_no: smartBatch,
                 target_package_type: found.unit || found.package || '',
                 planned_qty: parseFloat(found.qty || found.qtyLitre || found.planned_qty || 0),
@@ -2582,6 +2742,7 @@
     function CreateBlendingModal({ onClose, onSave, blenders = [], dbConfig = {}, apiConfig = {} }) {
       const [prodNo, setProdNo] = useState('');
       const [oil, setOil] = useState('');
+      const [itemCode, setItemCode] = useState('');
       const [blenderCode, setBlenderCode] = useState(blenders[0]?.code || 'BLB01');
       const [batch, setBatch] = useState('');
       const [isSearching, setIsSearching] = useState(false);
@@ -2598,6 +2759,7 @@
           const res = await searchSapAndSyncSupabase(prodNo, 'blending', dbConfig);
           if (res.success && res.data) {
             setOil(res.data.oil_name || '');
+            setItemCode(res.data.material_code || '');
             const resolvedBlender = res.data.target_blender_id || resolveBlenderCode(prodNo);
             if (resolvedBlender) {
               setBlenderCode(resolvedBlender);
@@ -2611,6 +2773,7 @@
             });
           } else {
             setOil('');
+            setItemCode('');
             setBatch('');
             setSearchStatus({ type: 'error', text: res.message || '⚠️ ไม่พบข้อมูลคำสั่งผลิตนี้ในระบบ' });
           }
@@ -2655,6 +2818,7 @@
                 id: `job-blb-${Date.now()}`,
                 productionNo: prodNo.trim(),
                 oilName: oil.trim(),
+                itemCode: itemCode.trim() || null,
                 batchNo: batch.trim(),
                 blenderCode: blenderCode,
                 jobStatus: 'ยังไม่เริ่ม',
@@ -2748,24 +2912,169 @@
       );
     }
 
-    function CreateFillingModal({ onClose, onSave, fillingLines = [], fillingJobs = [], blendingJobs = [], dbConfig = {}, apiConfig = {} }) {
+    function CreateFillingModal({ onClose, onSave, fillingLines = [], fillingJobs = [], blendingJobs = [], labSamples = [], sapStagingOrders = [], dbConfig = {}, apiConfig = {} }) {
       const [prodNo, setProdNo] = useState('');
       const [item, setItem] = useState('');
+      const [itemCode, setItemCode] = useState('');
       const [line, setLine] = useState('');
       const [oilBatch, setOilBatch] = useState('');
+      const [isManualBatch, setIsManualBatch] = useState(false);
+      const [manualBatchInput, setManualBatchInput] = useState('');
       const [note, setNote] = useState('');
       const [isSearching, setIsSearching] = useState(false);
       const [searchStatus, setSearchStatus] = useState(null);
 
-      // ดึงรายชื่อ Batch น้ำมันผสมที่พร้อมใช้งานจาก Blending สำหรับ autocomplete
-      const availableBlendBatches = useMemo(() => {
-        return (blendingJobs || []).map(j => ({
-          batchNo: j.batchNo,
-          oilName: j.oilName,
-          status: j.jobStatus,
-          blenderCode: j.blenderCode
-        }));
-      }, [blendingJobs]);
+      // ฟังก์ชันตัดคำระบุบรรจุภัณฑ์/ขนาดลิตรออก เพื่อให้เหลือเฉพาะชื่อเนื้อน้ำมันหลัก (Base Oil Name)
+      // เช่น "AMONE SOLUBLE OIL 140 SP (CAN 5L)" -> "amone soluble oil 140 sp"
+      // เช่น "AMONE SOLUBLE OIL 140 SP 200L" -> "amone soluble oil 140 sp"
+      const getBaseOilName = (name) => {
+        if (!name) return '';
+        let s = String(name).trim();
+        // ตัดเนื้อหาในวงเล็บ เช่น (CAN 5L), [200L]
+        s = s.replace(/\s*[\(\[\{][^\)\]\}]*[\)\]\}]/g, ' ');
+        // ตัดขนาดบรรจุภัณฑ์ เช่น 200L, 208L, 18L, 5L, 1L, 0.8L, 1000L, 500ML
+        s = s.replace(/\b\d+(\.\d+)?\s*(l|litre|liter|ml|kg|g|cc)\b/gi, ' ');
+        // ตัดคำศัพท์ประเภทภาชนะ
+        s = s.replace(/\b(drum|pail|can|carton|bottle|tin|ibc|bulk|ถัง|แกลลอน|ขวด|ลัง|ปี๊บ)\b/gi, ' ');
+        return s.replace(/[\-_,\/]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+      };
+
+      // ค้นหารายการ Batch น้ำมันผสมที่ตรงกับสินค้าตัวนี้
+      const { recommendedBatches, allAvailableBatches } = useMemo(() => {
+        const cleanItem = (item || '').trim();
+        const baseFillingName = getBaseOilName(cleanItem);
+        const cleanCode = (itemCode || '').trim().replace(/^0+/, ''); // ตัดเลข 0 ด้านหน้า
+
+        // ตรวจสอบว่าในแผน SAP Excel ของออเดอร์บรรจุนี้ มีระบุ Batch หรือ Bulk Oil Code ไว้หรือไม่
+        const stagedFilling = (sapStagingOrders || []).find((o) =>
+          String(o.productionNo || o.orderNo || '').trim().toLowerCase() === prodNo.trim().toLowerCase()
+        );
+        const stagedPlanBatch = stagedFilling?.batchNo || stagedFilling?.planned_batch_no || stagedFilling?.filling_batch_no || '';
+        const targetBulkCode = (stagedFilling?.bulkOilCode || stagedFilling?.bulk_oil_code || '').trim().replace(/^0+/, '');
+        const targetBulkName = (stagedFilling?.bulkOilName || stagedFilling?.bulk_oil_name || '').trim();
+
+        const batchMap = new Map();
+
+        // ตัวช่วยเปรียบเทียบว่าตรงกับสินค้าตัวนี้หรือไม่
+        const isProductMatch = (candName, candCode, candBatch) => {
+          const cCode = String(candCode || '').trim().replace(/^0+/, '');
+          // 1. ถ้าตรงกับ Bulk Oil Item Code (BOM ของ SAP) โดยตรง ⭐ แม่นยำที่สุด
+          if (targetBulkCode && cCode && (cCode === targetBulkCode || targetBulkCode.includes(cCode) || cCode.includes(targetBulkCode))) {
+            return true;
+          }
+          // 2. ถ้าตรงกับ Batch ที่ระบุในแผนคำสั่งผลิต SAP
+          if (stagedPlanBatch && candBatch && candBatch.toLowerCase() === stagedPlanBatch.toLowerCase()) return true;
+          // 3. ถ้า Item Code ของน้ำมันผสมตรงกัน
+          if (cleanCode && cCode && (cCode === cleanCode)) return true;
+          // 4. เทียบจากชื่อเนื้อน้ำมันหลัก (Base Oil Name) ที่ตัดขนาดภาชนะออกแล้ว
+          if (baseFillingName && candName) {
+            const baseCand = getBaseOilName(candName);
+            if (baseCand && (baseCand === baseFillingName || baseCand.includes(baseFillingName) || baseFillingName.includes(baseCand))) {
+              return true;
+            }
+          }
+          // 5. เทียบจากชื่อ Bulk Oil Name ถ้ามี
+          if (targetBulkName && candName) {
+            const baseTargetBulk = getBaseOilName(targetBulkName);
+            const baseCand = getBaseOilName(candName);
+            if (baseTargetBulk && baseCand && (baseTargetBulk === baseCand || baseCand.includes(baseTargetBulk) || baseTargetBulk.includes(baseCand))) {
+              return true;
+            }
+          }
+          return false;
+        };
+
+        // 1. ดึงจาก Blending Jobs ในระบบ
+        (blendingJobs || []).forEach((j) => {
+          if (!j.batchNo) return;
+          const staged = (sapStagingOrders || []).find((o) =>
+            String(o.productionNo || '').trim().toLowerCase() === String(j.productionNo || '').trim().toLowerCase()
+          );
+          const jCode = j.itemCode || staged?.itemCode || staged?.material_code || '';
+          const bSample = (labSamples || []).find((s) =>
+            s.sourceModule === 'BLENDING' &&
+            s.batchNo === j.batchNo &&
+            s.labAction === 'APPROVE' &&
+            s.density30c
+          );
+
+          const matched = isProductMatch(j.oilName, jCode, j.batchNo);
+          batchMap.set(j.batchNo, {
+            batchNo: j.batchNo,
+            oilName: j.oilName,
+            itemCode: jCode,
+            blenderCode: j.blenderCode,
+            jobStatus: j.jobStatus,
+            labApproved: Boolean(bSample),
+            density30c: bSample?.density30c || null,
+            productionNo: j.productionNo,
+            source: 'ถังผสมในระบบ',
+            isRecommended: matched
+          });
+        });
+
+        // 2. ดึงจาก แผนคำสั่งผลิต SAP (Excel Staging) ฝ่ายผสม
+        (sapStagingOrders || []).forEach((o) => {
+          if (o.orderType && o.orderType !== 'Blending') return;
+          const bNo = o.batchNo || o.planned_batch_no || '';
+          if (!bNo || ['F', 'CC', 'B', ''].includes(bNo) || bNo.startsWith('F(')) return;
+          if (batchMap.has(bNo)) return;
+
+          const oCode = o.itemCode || o.material_code || '';
+          const oName = o.productionName || o.oilName || '';
+          const bSample = (labSamples || []).find((s) =>
+            s.sourceModule === 'BLENDING' &&
+            s.batchNo === bNo &&
+            s.labAction === 'APPROVE' &&
+            s.density30c
+          );
+
+          const matched = isProductMatch(oName, oCode, bNo);
+          batchMap.set(bNo, {
+            batchNo: bNo,
+            oilName: oName,
+            itemCode: oCode,
+            blenderCode: o.productTank || o.target_blender_id || o.operation1 || '',
+            jobStatus: 'แผน SAP (Excel)',
+            labApproved: Boolean(bSample),
+            density30c: bSample?.density30c || null,
+            productionNo: o.productionNo,
+            source: 'แผนคำสั่งผลิต SAP',
+            isRecommended: matched
+          });
+        });
+
+        // 3. ดึงจาก Lab Samples ฝ่ายผสม
+        (labSamples || []).forEach((s) => {
+          if (s.sourceModule !== 'BLENDING' || !s.batchNo) return;
+          if (batchMap.has(s.batchNo)) return;
+
+          const matched = isProductMatch(s.oilName, '', s.batchNo);
+          batchMap.set(s.batchNo, {
+            batchNo: s.batchNo,
+            oilName: s.oilName,
+            itemCode: '',
+            blenderCode: s.blenderCode || '',
+            jobStatus: s.labAction === 'APPROVE' ? 'แล็บอนุมัติแล้ว' : 'ส่งตรวจแล็บ',
+            labApproved: s.labAction === 'APPROVE' && Boolean(s.density30c),
+            density30c: s.density30c || null,
+            productionNo: s.productionNo,
+            source: 'ประวัติตรวจแล็บ',
+            isRecommended: matched
+          });
+        });
+
+        const all = Array.from(batchMap.values());
+        const rec = all.filter((b) => b.isRecommended);
+        return { recommendedBatches: rec, allAvailableBatches: all };
+      }, [blendingJobs, sapStagingOrders, labSamples, item, itemCode, prodNo]);
+
+      // ข้อมูลของ Batch ที่ผู้ใช้กำลังเลือกอยู่
+      const selectedBatchInfo = useMemo(() => {
+        const currentVal = isManualBatch ? manualBatchInput.trim() : oilBatch;
+        if (!currentVal) return null;
+        return allAvailableBatches.find((b) => b.batchNo === currentVal);
+      }, [allAvailableBatches, oilBatch, isManualBatch, manualBatchInput]);
 
       const handleSearch = async () => {
         if (!prodNo.trim()) {
@@ -2777,17 +3086,22 @@
         try {
           const res = await searchSapAndSyncSupabase(prodNo, 'filling', dbConfig);
           if (res.success && res.data) {
-            setItem(res.data.oil_name || '');
-            // ให้ผู้ใช้กรอก Batch น้ำมันผสมต้นทางเอง (เช่น B26..., K154...)
-            // ไม่ดึงรหัส F... จากแผนบรรจุของ SAP มาใส่อัตโนมัติ
+            const foundOil = res.data.oil_name || '';
+            const foundCode = res.data.material_code || '';
+            setItem(foundOil);
+            setItemCode(foundCode);
+            setIsManualBatch(false);
             setOilBatch('');
+            setManualBatchInput('');
             setSearchStatus({
               type: 'success',
-              text: '✓ ดึงข้อมูลสำเร็จ: ' + res.data.oil_name + ' • กรุณาเลือกไลน์บรรจุ และระบุ Batch น้ำมันต้นทาง (เช่น B26..., K154...)'
+              text: `✓ ดึงข้อมูลสำเร็จ: ${foundOil}${foundCode ? ` (Item: ${foundCode})` : ''} • กรุณาเลือกไลน์ และเลือก Batch น้ำมันใน Dropdown ด้านล่าง`
             });
           } else {
             setItem('');
+            setItemCode('');
             setOilBatch('');
+            setManualBatchInput('');
             setSearchStatus({ type: 'error', text: res.message || '⚠️ ไม่พบข้อมูลคำสั่งผลิตนี้ในระบบ' });
           }
         } catch (err) {
@@ -2827,10 +3141,11 @@
               if (!prodNo.trim()) { alert('⚠️ กรุณากรอก Production No.'); return; }
               if (!item.trim()) { alert('⚠️ กรุณากรอก Name (ชื่อน้ำมัน)'); return; }
               if (!line) { alert('⚠️ บังคับเลือกไลน์บรรจุ (กรุณาเลือกไลน์บรรจุ)'); return; }
-              if (!oilBatch.trim()) { alert('⚠️ บังคับกรอก Batch น้ำมันที่จะเอามา Fill'); return; }
-              const trimmedBatch = oilBatch.trim();
-              if (/^F\d{1,2}[\/\-]\d{1,2}/i.test(trimmedBatch) || trimmedBatch.toUpperCase() === 'F') {
-                alert(`⚠️ รูปแบบ Batch น้ำมันไม่ถูกต้อง: กรุณากรอก Batch น้ำมันผสมต้นทางจริง เช่น B26...... หรือ K154...... (ไม่ใช่รหัสแผนบรรจุ ${trimmedBatch})`);
+              
+              const finalBatch = (isManualBatch ? manualBatchInput : oilBatch).trim();
+              if (!finalBatch) { alert('⚠️ บังคับเลือกหรือกรอก Batch น้ำมันที่จะเอามา Fill'); return; }
+              if (/^F\d{1,2}[\/\-]\d{1,2}/i.test(finalBatch) || finalBatch.toUpperCase() === 'F') {
+                alert(`⚠️ รูปแบบ Batch น้ำมันไม่ถูกต้อง: กรุณาระบุ Batch น้ำมันผสมต้นทางจริง เช่น B26...... หรือ K154...... (ไม่ใช่รหัสแผนบรรจุ ${finalBatch})`);
                 return;
               }
               const newJob = {
@@ -2838,7 +3153,8 @@
                 lineCode: line,
                 productionNo: prodNo.trim(),
                 itemName: item.trim(),
-                bulkOilBatchNo: oilBatch.trim(),
+                itemCode: itemCode.trim() || null,
+                bulkOilBatchNo: finalBatch,
                 jobStatus: 'ยังไม่เริ่ม',
                 materialsReady: false,
                 firstFillApproved: false,
@@ -2852,7 +3168,7 @@
               };
               onSave(newJob);
               onClose();
-              alert(`✅ บันทึกข้อมูล Job บรรจุ ${prodNo.trim()} (ไลน์ ${line} | Batch: ${oilBatch.trim()}) เรียบร้อย! (สถานะ: ยังไม่เริ่ม)`);
+              alert(`✅ บันทึกข้อมูล Job บรรจุ ${prodNo.trim()} (ไลน์ ${line} | Batch: ${finalBatch}) เรียบร้อย! (สถานะ: ยังไม่เริ่ม)`);
             }} className="space-y-4 text-xs sm:text-sm">
 
               {/* 1. Production No with Search Button */}
@@ -2880,13 +3196,20 @@
                   </button>
                 </div>
                 <span className="text-[11px] text-slate-500 mt-1 block">
-                  💡 กรอกเลขแล้วกด [🔍 ค้นหา SAP] ระบบจะดึงชื่อน้ำมันให้ทันที
+                  💡 กรอกเลขแล้วกด [🔍 ค้นหา SAP] ระบบจะดึงชื่อน้ำมันและ Item Code ให้ทันที
                 </span>
               </div>
 
-              {/* 2. Name (ชื่อน้ำมัน) */}
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">Name (ชื่อน้ำมันที่จะบรรจุ):</label>
+              {/* 2. Name (ชื่อน้ำมัน) & Item Code */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-700 block">Name (ชื่อน้ำมันที่จะบรรจุ):</label>
+                  {itemCode && (
+                    <span className="text-[11px] font-mono text-teal-800 font-bold bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                      Item: {itemCode}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={item}
@@ -2915,30 +3238,148 @@
                 </select>
               </div>
 
-              {/* 4. Batch น้ำมันที่จะเอามา Fill (Mandatory) */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-bold text-slate-700 block">Batch น้ำมันที่จะเอามา Fill <span className="text-rose-500 text-xs font-normal">* บังคับกรอก</span>:</label>
+              {/* 4. Batch น้ำมันที่จะเอามา Fill (Dropdown กรองตาม Item Code / ชื่อเนื้อน้ำมันหลัก) */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-700 block text-xs sm:text-sm">
+                    Batch น้ำมันที่จะเอามา Fill <span className="text-rose-500 font-normal">* บังคับเลือก</span>:
+                  </label>
+                  {recommendedBatches.length > 0 && !isManualBatch && (
+                    <span className="text-[11px] text-emerald-800 font-bold bg-emerald-100/80 px-2 py-0.5 rounded border border-emerald-300">
+                      ⭐ ตรงกับสินค้านี้ {recommendedBatches.length} Batch
+                    </span>
+                  )}
                 </div>
-                <input
-                  type="text"
-                  list="blender-batches-list"
-                  value={oilBatch}
-                  onChange={(e) => setOilBatch(e.target.value)}
-                  required
-                  placeholder="เช่น B261008053 หรือ K154......"
-                  className="w-full bg-slate-50 border-2 border-teal-500/40 focus:bg-white rounded-xl p-2.5 text-teal-800 font-mono font-bold text-base focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
-                />
-                <datalist id="blender-batches-list">
-                  {availableBlendBatches.map((b, idx) => (
-                    <option key={b.batchNo + '-' + idx} value={b.batchNo}>
-                      {b.batchNo} - {b.oilName || ''} {b.blenderCode ? `(${b.blenderCode})` : ''}
-                    </option>
-                  ))}
-                </datalist>
-                <span className="text-[11px] text-slate-500 mt-1 block">
-                  💡 กรอกเลข Batch ของน้ำมันผสมต้นทาง เช่น <strong className="text-teal-700 font-mono">B26......</strong> หรือ <strong className="text-teal-700 font-mono">K154......</strong>
-                </span>
+
+                {allAvailableBatches.length > 0 && !isManualBatch ? (
+                  <div className="space-y-1.5">
+                    <select
+                      value={oilBatch}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '__MANUAL__') {
+                          setIsManualBatch(true);
+                          setOilBatch('');
+                        } else {
+                          setOilBatch(val);
+                        }
+                      }}
+                      required
+                      className="w-full bg-slate-50 border-2 border-teal-500/50 focus:bg-white rounded-xl p-2.5 text-teal-900 font-mono font-bold text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all cursor-pointer"
+                    >
+                      <option value="">-- 🔽 กรุณาเลือก Batch น้ำมันต้นทาง --</option>
+                      
+                      {/* กลุ่มที่ 1: แนะนำตรงกับสินค้า */}
+                      {recommendedBatches.length > 0 && (
+                        <optgroup label={`⭐ Batch ถังผสมที่ตรงกับสินค้านี้ (${recommendedBatches.length} รายการ)`}>
+                          {recommendedBatches.map((b) => (
+                            <option key={b.batchNo} value={b.batchNo}>
+                              {b.batchNo} {b.blenderCode ? `[ถัง ${b.blenderCode}]` : ''} • {b.oilName} {b.labApproved ? `(✓ แล็บผ่าน: ${b.density30c} g/cm³)` : `(${b.jobStatus})`}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+
+                      {/* กลุ่มที่ 2: ถังผสมอื่นๆ ที่มีในโรงงาน */}
+                      {allAvailableBatches.filter((b) => !b.isRecommended).length > 0 && (
+                        <optgroup label={`🛢️ ถังผสมอื่นๆ ในโรงงาน (${allAvailableBatches.filter((b) => !b.isRecommended).length} รายการ)`}>
+                          {allAvailableBatches.filter((b) => !b.isRecommended).map((b) => (
+                            <option key={b.batchNo} value={b.batchNo}>
+                              {b.batchNo} {b.blenderCode ? `[ถัง ${b.blenderCode}]` : ''} • {b.oilName} {b.labApproved ? `(✓ แล็บผ่าน: ${b.density30c} g/cm³)` : `(${b.jobStatus})`}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+
+                      <option value="__MANUAL__">✏️ ระบุเลข Batch อื่นๆ ด้วยตนเอง (พิมพ์เอง)...</option>
+                    </select>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 px-1">
+                      <span>
+                        {recommendedBatches.length > 0 ? (
+                          <>💡 พบ <strong className="text-emerald-700 font-bold">{recommendedBatches.length} Batch</strong> ที่ตรงกับเนื้อน้ำมัน <strong className="text-teal-800">{item || 'นี้'}</strong></>
+                        ) : (
+                          <>💡 เลือกจากถังผสมในโรงงานด้านบน หรือพิมพ์เลข Batch เอง</>
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { setIsManualBatch(true); setManualBatchInput(oilBatch); }}
+                        className="text-teal-600 hover:text-teal-800 underline font-bold cursor-pointer shrink-0 ml-2"
+                      >
+                        พิมพ์ Batch เอง
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 animate-fadeIn">
+                    <input
+                      type="text"
+                      list="blender-batches-datalist"
+                      value={isManualBatch ? manualBatchInput : oilBatch}
+                      onChange={(e) => {
+                        if (isManualBatch) setManualBatchInput(e.target.value);
+                        else setOilBatch(e.target.value);
+                      }}
+                      required
+                      placeholder="เช่น B261008053 หรือ K154......"
+                      className="w-full bg-slate-50 border-2 border-teal-500/50 focus:bg-white rounded-xl p-2.5 text-teal-800 font-mono font-bold text-base focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
+                      autoFocus={isManualBatch}
+                    />
+                    <datalist id="blender-batches-datalist">
+                      {allAvailableBatches.map((b) => (
+                        <option key={b.batchNo} value={b.batchNo}>
+                          {b.batchNo} - {b.oilName} {b.blenderCode ? `(ถัง ${b.blenderCode})` : ''}
+                        </option>
+                      ))}
+                    </datalist>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 px-1">
+                      <span>💡 กรอกเลข Batch ของน้ำมันผสมต้นทาง เช่น <strong className="text-teal-700 font-mono">B26......</strong> หรือ <strong className="text-teal-700 font-mono">K154......</strong></span>
+                      {allAvailableBatches.length > 0 && isManualBatch && (
+                        <button
+                          type="button"
+                          onClick={() => { setIsManualBatch(false); if (!oilBatch) setOilBatch(recommendedBatches[0]?.batchNo || allAvailableBatches[0]?.batchNo || ''); }}
+                          className="text-teal-600 hover:text-teal-800 underline font-bold cursor-pointer"
+                        >
+                          ↩ กลับไปเลือก Dropdown ({allAvailableBatches.length} รายการ)
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* กล่องแสดงผล Batch ที่เลือก */}
+                {selectedBatchInfo && (
+                  <div className="p-3 bg-emerald-50/90 border border-emerald-300 rounded-xl text-xs space-y-1.5 shadow-xs animate-fadeIn mt-1.5">
+                    <div className="font-bold text-emerald-900 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <span>✅</span>
+                        <span>น้ำมันผสมต้นทาง: <strong className="font-mono text-emerald-950 text-sm">{selectedBatchInfo.batchNo}</strong></span>
+                      </span>
+                      {selectedBatchInfo.blenderCode && (
+                        <span className="bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
+                          ถัง {selectedBatchInfo.blenderCode}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-slate-600 text-[11px] grid grid-cols-2 gap-1 font-mono">
+                      <div>สถานะงานผสม: <strong className="text-slate-800">{selectedBatchInfo.jobStatus}</strong></div>
+                      <div>
+                        สถานะแล็บ: {selectedBatchInfo.labApproved ? (
+                          <strong className="text-emerald-700">✓ ผ่านแล้ว ({selectedBatchInfo.density30c} g/cm³)</strong>
+                        ) : (
+                          <span className="text-amber-700">⏳ ยังไม่ผ่านการตรวจ</span>
+                        )}
+                      </div>
+                    </div>
+                    {selectedBatchInfo.density30c && (
+                      <div className="text-[11px] text-emerald-700">
+                        💡 เมื่อแล็บกดอนุมัติ First Fill ของไลน์นี้ ระบบจะดึงค่า Density ({selectedBatchInfo.density30c} g/cm³) มาแสดงให้อัตโนมัติทันที
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* 5. หมายเหตุสำหรับไลน์บรรจุ (Optional) */}
@@ -4958,23 +5399,191 @@
           try {
             const data = new Uint8Array(evt.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
-            const sheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
-            const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-
-            if (!rawRows || rawRows.length < 2) {
-              throw new Error('ไฟล์ Excel ว่างเปล่าหรือไม่พบข้อมูลแถว');
-            }
-
-            // หา Header Row (ค้นหาบรรทัดที่มี Production No.)
-            let headerRowIndex = 0;
-            for (let r = 0; r < Math.min(10, rawRows.length); r++) {
-              const rowStr = rawRows[r].map(c => String(c).toLowerCase().trim()).join(' ');
-              if (rowStr.includes('production no') || rowStr.includes('production name') || rowStr.includes('item code') || rowStr.includes('aufnr')) {
-                headerRowIndex = r;
-                break;
+            
+            // ตรวจสอบว่าไฟล์นี้เป็น Blending Daily Report หรือไม่
+            // (มีคอลัมน์ Blending No. และ Packing No. หลายถังผสม)
+            let isDailyReport = false;
+            let dailyReportSheet = workbook.SheetNames[0];
+            for (const sName of workbook.SheetNames) {
+              const ws = workbook.Sheets[sName];
+              const testRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+              for (let r = 0; r < Math.min(8, testRows.length); r++) {
+                const rStr = (testRows[r] || []).map(c => String(c).toLowerCase()).join(' ');
+                if (rStr.includes('blending no') && rStr.includes('packing no')) {
+                  isDailyReport = true;
+                  dailyReportSheet = sName;
+                  break;
+                }
               }
+              if (isDailyReport) break;
             }
+
+            const parsed = [];
+
+            if (isDailyReport) {
+              // =========================================================================
+              // PARSER เฉพาะสำหรับไฟล์ Blending_daily_report (Multi-Blender Grid)
+              // =========================================================================
+              const ws = workbook.Sheets[dailyReportSheet];
+              const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+              // สแกนหา Header Row ที่มีคำว่า 'blending no'
+              let headerRowIdx = -1;
+              for (let r = 0; r < Math.min(10, rawRows.length); r++) {
+                const rStr = (rawRows[r] || []).map(c => String(c).toLowerCase()).join(' ');
+                if (rStr.includes('blending no')) {
+                  headerRowIdx = r;
+                  break;
+                }
+              }
+
+              if (headerRowIdx !== -1) {
+                const headerRow = rawRows[headerRowIdx];
+                const tankTitleRow = headerRowIdx > 0 ? rawRows[headerRowIdx - 1] : [];
+
+                // ค้นหาตำแหน่งของแต่ละถัง (BLB01, BLB02, ...)
+                const blenderBlocks = [];
+                for (let c = 0; c < headerRow.length; c++) {
+                  const cellHeader = String(headerRow[c] || '').trim().toLowerCase();
+                  if (cellHeader.includes('blending no')) {
+                    // หาว่าบล็อกนี้เป็นถังอะไร โดยมองหาคำว่า BLB... ในแถวหัวเรื่องด้านบน
+                    let tankCode = '';
+                    for (let backC = Math.max(0, c - 3); backC <= Math.min(headerRow.length - 1, c + 3); backC++) {
+                      const titleCell = String(tankTitleRow[backC] || '').trim().toUpperCase();
+                      const matchBlb = titleCell.match(/\b(BLB\d{1,2}|B\d{2})\b/);
+                      if (matchBlb) { tankCode = matchBlb[1]; break; }
+                    }
+
+                    // หา index ของคอลัมน์ต่างๆ ในบล็อกนี้
+                    let orderNoIdx = c - 1 >= 0 ? c - 1 : c;
+                    let blendingNoIdx = c;
+                    let packingNoIdx = c + 1;
+                    let nameIdx = c + 2;
+                    let qtyIdx = c + 3;
+                    let totalIdx = c + 4;
+                    let tankNoIdx = c + 5;
+                    let remarkIdx = c + 6;
+
+                    // ตรวจสอบชื่อหัวคอลัมน์โดยรอบ
+                    for (let off = -2; off <= 8; off++) {
+                      const curC = c + off;
+                      if (curC < 0 || curC >= headerRow.length) continue;
+                      const hName = String(headerRow[curC] || '').trim().toLowerCase();
+                      if (hName.includes('order no')) orderNoIdx = curC;
+                      else if (hName.includes('packing no')) packingNoIdx = curC;
+                      else if (hName === 'name' || hName.includes('product name')) nameIdx = curC;
+                      else if (hName.includes('quantity')) qtyIdx = curC;
+                      else if (hName.includes('total')) totalIdx = curC;
+                      else if (hName.includes('tank no')) tankNoIdx = curC;
+                      else if (hName.includes('remark')) remarkIdx = curC;
+                    }
+
+                    blenderBlocks.push({
+                      tankCode: tankCode || `BLB${blenderBlocks.length + 1 < 10 ? '0' : ''}${blenderBlocks.length + 1}`,
+                      orderNoIdx,
+                      blendingNoIdx,
+                      packingNoIdx,
+                      nameIdx,
+                      qtyIdx,
+                      totalIdx,
+                      tankNoIdx,
+                      remarkIdx
+                    });
+                  }
+                }
+
+                // อ่านข้อมูลแถวทั้งหมดใต้ Header
+                for (let r = headerRowIdx + 1; r < rawRows.length; r++) {
+                  const row = rawRows[r];
+                  if (!row || row.length === 0) continue;
+
+                  for (const blk of blenderBlocks) {
+                    const rawBlendingNo = String(row[blk.blendingNoIdx] || '').trim();
+                    const rawPackingNo = String(row[blk.packingNoIdx] || '').trim();
+                    const rawOilName = String(row[blk.nameIdx] || '').trim();
+                    const rawTankNo = String(row[blk.tankNoIdx] || '').trim();
+                    const rawTotal = parseFloat(row[blk.totalIdx]) || 0;
+                    const rawRemark = String(row[blk.remarkIdx] || '').trim();
+
+                    // ข้ามแถวที่เป็น Total หรือว่าง
+                    if (rawBlendingNo.toLowerCase() === 'total' || rawOilName.toLowerCase() === 'total') continue;
+
+                    // 1. ถ้ามี Blending No. -> สร้างรายการงานผสม (Blending Order)
+                    if (rawBlendingNo && /^\d+$/.test(rawBlendingNo)) {
+                      parsed.push({
+                        productionNo: rawBlendingNo,
+                        orderType: 'Blending',
+                        itemCode: '',
+                        productionName: rawOilName,
+                        batchNo: '', // จะดึง Batch ต่อจาก SAP หรือให้พนักงานระบุ
+                        status: 'Planned',
+                        qty: rawTotal,
+                        qtyLitre: rawTotal,
+                        unit: 'Litre',
+                        productTank: rawTankNo || blk.tankCode,
+                        operation1: blk.tankCode,
+                        operation2: '',
+                        operation3: '',
+                        remark: rawRemark ? `Tank: ${rawTankNo} | ${rawRemark}` : `Tank: ${rawTankNo}`,
+                        startDate: '',
+                        dueDate: '',
+                        createBy: 'Daily Report'
+                      });
+                    }
+
+                    // 2. ถ้ามี Packing No. -> อาจมีหลายเลขในเซลล์เดียว (คั่นด้วย \n)
+                    if (rawPackingNo) {
+                      const packLines = rawPackingNo.split(/[\r\n,]+/).map(s => s.trim()).filter(Boolean);
+                      packLines.forEach(packNo => {
+                        if (/^\d+$/.test(packNo)) {
+                          parsed.push({
+                            productionNo: packNo,
+                            orderType: 'Packing',
+                            itemCode: '',
+                            productionName: rawOilName,
+                            bulkOilCode: '',
+                            bulkOilName: rawOilName,
+                            batchNo: '',
+                            status: 'Planned',
+                            qty: 0,
+                            qtyLitre: 0,
+                            unit: '',
+                            productTank: rawTankNo || blk.tankCode,
+                            operation1: blk.tankCode,
+                            operation2: '',
+                            operation3: '',
+                            remark: `แผนผลิตผูกกับ Blending No: ${rawBlendingNo || '-'} (ถัง ${blk.tankCode})`,
+                            startDate: '',
+                            dueDate: '',
+                            createBy: 'Daily Report'
+                          });
+                        }
+                      });
+                    }
+                  }
+                }
+              }
+            } else {
+              // =========================================================================
+              // PARSER มาตรฐานสำหรับไฟล์ SAP (Production Overview Plan and Released.xlsx)
+              // =========================================================================
+              const sheetName = workbook.SheetNames[0];
+              const worksheet = workbook.Sheets[sheetName];
+              const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+              if (!rawRows || rawRows.length < 2) {
+                throw new Error('ไฟล์ Excel ว่างเปล่าหรือไม่พบข้อมูลแถว');
+              }
+
+              // หา Header Row (ค้นหาบรรทัดที่มี Production No.)
+              let headerRowIndex = 0;
+              for (let r = 0; r < Math.min(10, rawRows.length); r++) {
+                const rowStr = rawRows[r].map(c => String(c).toLowerCase().trim()).join(' ');
+                if (rowStr.includes('production no') || rowStr.includes('production name') || rowStr.includes('item code') || rowStr.includes('aufnr')) {
+                  headerRowIndex = r;
+                  break;
+                }
+              }
 
             const headers = rawRows[headerRowIndex].map(h => String(h).trim());
             const normKey = (str) => String(str || '').toLowerCase().replace(/[\s\._\-#]/g, '');
@@ -4985,7 +5594,9 @@
               if (key === 'productionno' || key === 'orderno' || key === 'aufnr') colMap.productionNo = idx;
               else if (key === 'productionordertype' || key === 'ordertype' || key === 'type') colMap.orderType = idx;
               else if (key === 'productionname' || key === 'productname' || key === 'itemname' || key === 'description' || key === 'maktx') colMap.productionName = idx;
-              else if (key === 'itemcode' || key === 'materialcode' || key === 'matnr') colMap.itemCode = idx;
+              else if (key === 'itemcode' || key === 'materialcode' || key === 'matnr' || key === 'fgcode') colMap.itemCode = idx;
+              else if (key === 'bulkoilcode' || key === 'component' || key === 'componentcode' || key === 'sfgcode' || key === 'rawmaterialcode') colMap.bulkOilCode = idx;
+              else if (key === 'bulkoilname' || key === 'componentdescription' || key === 'componentname' || key === 'sfgname') colMap.bulkOilName = idx;
               else if (key === 'batchno' || key === 'batch' || key === 'charg') colMap.batchNo = idx;
               else if (key === 'productionorderstatus' || key === 'status') colMap.status = idx;
               else if (key === 'qtylitre' || key === 'qtyliter') colMap.qtyLitre = idx;
@@ -5057,6 +5668,8 @@
                 orderType,
                 itemCode: getVal(colMap.itemCode),
                 productionName: getVal(colMap.productionName),
+                bulkOilCode: getVal(colMap.bulkOilCode),
+                bulkOilName: getVal(colMap.bulkOilName),
                 batchNo: finalBatch,
                 status: status,
                 qty: parseFloat(getVal(colMap.qty)) || 0,
@@ -5072,6 +5685,7 @@
                 createBy: getVal(colMap.createBy)
               });
             }
+          }
 
             if (parsed.length === 0) {
               throw new Error('ไม่พบข้อมูลคำสั่งผลิตที่มีเลข Production No. ในไฟล์');
@@ -7462,6 +8076,19 @@
         const nowIso = new Date().toISOString();
         let targetSample = null;
 
+        // Auto-lookup blender density if target sample is FILLING and density is not provided or to ensure fallback
+        const existingSample = labSamples.find((s) => s.sampleId === sampleId);
+        let resolvedDensity = (payload.density30c !== null && payload.density30c !== undefined && payload.density30c !== '')
+          ? Number(payload.density30c)
+          : null;
+
+        if (action === 'APPROVE' && !resolvedDensity && existingSample?.sourceModule === 'FILLING') {
+          const bMatch = getBlenderDensityForBatch(existingSample.batchNo, existingSample.productionNo, labSamples, blendingJobs);
+          if (bMatch && bMatch.density30c) {
+            resolvedDensity = Number(bMatch.density30c);
+          }
+        }
+
         const updated = labSamples.map((s) => {
           if (s.sampleId === sampleId) {
             const pureTat = s.tReceived ? Math.round((new Date(nowIso) - new Date(s.tReceived)) / 60000) : 0;
@@ -7470,7 +8097,7 @@
               labAction: action,
               tApproved: nowIso,
               inspectorId: payload.inspectorId || currentUser?.fullName || 'เจ้าหน้าที่ QC',
-              density30c: payload.density30c ? Number(payload.density30c) : null,
+              density30c: resolvedDensity,
               reasonDescriptionTh: payload.reasonDescriptionTh || null,
               comment: payload.comment || '',
               isLocked: true, // ล็อกทันทีแบบ Append-Only
@@ -7530,12 +8157,14 @@
           saveFilling(
             fillingJobs.map((f) => {
               const isTargetJob = f.id === targetSample.sourceId ||
-                (f.productionNo === targetSample.productionNo && f.bulkOilBatchNo === targetSample.batchNo);
+                (targetSample.sourceId && f.id === targetSample.sourceId) ||
+                (f.productionNo && targetSample.productionNo && f.productionNo === targetSample.productionNo) ||
+                (targetSample.batchNo && f.bulkOilBatchNo === targetSample.batchNo);
               if (isTargetJob && f.jobStatus !== 'ยังไม่เริ่ม') {
                 return {
                   ...f,
                   firstFillApproved: action === 'APPROVE',
-                  approvedDensity30c: action === 'APPROVE' ? targetSample.density30c : null
+                  approvedDensity30c: action === 'APPROVE' ? (targetSample.density30c || resolvedDensity) : null
                 };
               }
               return f;
@@ -7553,6 +8182,18 @@
         const currentInspector = inspectorName || currentUser?.fullName || 'เจ้าหน้าที่ QC';
         const approverLabel = currentUser?.fullName ? `${currentUser.fullName} (${currentUser.role || 'QC'})` : 'หัวหน้าแล็บ QC (Supervisor)';
 
+        const existingSample = labSamples.find((s) => s.sampleId === sampleId);
+        let resolvedDensity = (density30c !== null && density30c !== undefined && density30c !== '')
+          ? Number(density30c)
+          : null;
+
+        if (newAction === 'APPROVE' && !resolvedDensity && existingSample?.sourceModule === 'FILLING') {
+          const bMatch = getBlenderDensityForBatch(existingSample.batchNo, existingSample.productionNo, labSamples, blendingJobs);
+          if (bMatch && bMatch.density30c) {
+            resolvedDensity = Number(bMatch.density30c);
+          }
+        }
+
         const updated = labSamples.map((s) => {
           if (s.sampleId === sampleId) {
             const prevRecord = {
@@ -7569,7 +8210,7 @@
             targetSample = {
               ...s,
               labAction: newAction,
-              density30c: newAction === 'APPROVE' ? density30c : null,
+              density30c: newAction === 'APPROVE' ? resolvedDensity : null,
               reasonDescriptionTh: newAction !== 'APPROVE' ? reasonDescriptionTh : null,
               comment: comment || '',
               inspectorId: currentInspector,
@@ -7625,12 +8266,13 @@
           saveFilling(
             fillingJobs.map((f) => {
               const isTargetJob = f.id === targetSample.sourceId ||
+                (targetSample.sourceId && f.id === targetSample.sourceId) ||
                 (f.productionNo === targetSample.productionNo && f.bulkOilBatchNo === targetSample.batchNo);
               if (isTargetJob && f.jobStatus !== 'ยังไม่เริ่ม') {
                 return {
                   ...f,
                   firstFillApproved: newAction === 'APPROVE',
-                  approvedDensity30c: newAction === 'APPROVE' ? targetSample.density30c : null
+                  approvedDensity30c: newAction === 'APPROVE' ? (targetSample.density30c || resolvedDensity) : null
                 };
               }
               return f;
@@ -12584,9 +13226,10 @@
                         {(() => {
                           const fillHistory = getSampleHistory('FILLING', currentFillingJob.productionNo, 'First Fill (ถังแรก)', currentFillingJob.bulkOilBatchNo);
                           const latestSample = getLatestSample('FILLING', currentFillingJob.productionNo, 'First Fill (ถังแรก)', currentFillingJob.bulkOilBatchNo);
-                          const isApproved = latestSample?.labAction === 'APPROVE' && latestSample?.density30c;
-                          const isWaitingLab = latestSample?.labAction === 'PENDING';
-                          const isResample = latestSample?.labAction === 'REQUEST_RESAMPLE';
+                          const finalDensityVal = latestSample?.density30c || currentFillingJob.approvedDensity30c;
+                          const isApproved = (latestSample?.labAction === 'APPROVE' && finalDensityVal) || (currentFillingJob.firstFillApproved && finalDensityVal);
+                          const isWaitingLab = latestSample?.labAction === 'PENDING' && !currentFillingJob.firstFillApproved;
+                          const isResample = latestSample?.labAction === 'REQUEST_RESAMPLE' && !currentFillingJob.firstFillApproved;
                           const isUnstarted = currentFillingJob.jobStatus === 'ยังไม่เริ่ม';
 
                           return (
@@ -12608,7 +13251,7 @@
                                 <div className="mt-2.5 p-2 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between">
                                   <span className="text-xs text-slate-300">Density @ 30°C จากแล็บ:</span>
                                   <span className="font-mono text-base font-bold text-amber-400">
-                                    {isApproved ? `${latestSample.density30c} g/cm³` : '— รอผลตรวจ —'}
+                                    {isApproved ? `${finalDensityVal} g/cm³` : '— รอผลตรวจ —'}
                                   </span>
                                 </div>
 
@@ -12726,7 +13369,7 @@
 
                                     {isApproved && (
                                       <div className="p-2 bg-emerald-950/40 border border-emerald-800 rounded-xl text-center text-xs text-emerald-300 font-bold">
-                                        ✓ ผลตรวจ First Fill ผ่านเรียบร้อย (Density @ 30°C: {latestSample.density30c})
+                                        ✓ ผลตรวจ First Fill ผ่านเรียบร้อย (Density @ 30°C: {finalDensityVal} g/cm³)
                                       </div>
                                     )}
                                   </>
@@ -12767,7 +13410,8 @@
                       {/* Interlock หัวจ่าย & ปุ่มจบงาน */}
                       {(() => {
                         const latestLab = getLatestSample('FILLING', currentFillingJob.productionNo, 'First Fill (ถังแรก)', currentFillingJob.bulkOilBatchNo);
-                        const isLabApproved = latestLab?.labAction === 'APPROVE' && latestLab?.density30c;
+                        const finalApprovedDensity = latestLab?.density30c || currentFillingJob.approvedDensity30c;
+                        const isLabApproved = (latestLab?.labAction === 'APPROVE' && finalApprovedDensity) || (currentFillingJob.firstFillApproved && finalApprovedDensity);
                         const canStartFilling = Boolean(isLabApproved);
                         const isUnstarted = currentFillingJob.jobStatus === 'ยังไม่เริ่ม';
                         const isFillingStarted = Boolean(currentFillingJob.fillingStartedAt);
@@ -16188,6 +16832,8 @@
               onConfirm={handleConfirmLabAction}
               adminConfig={adminConfig}
               currentUser={currentUser}
+              labSamples={labSamples}
+              blendingJobs={blendingJobs}
             />
           )}
 
@@ -16198,6 +16844,8 @@
               onConfirm={handleConfirmOverrideLab}
               adminConfig={adminConfig}
               currentUser={currentUser}
+              labSamples={labSamples}
+              blendingJobs={blendingJobs}
             />
           )}
 
@@ -16224,6 +16872,8 @@
               fillingLines={adminConfig.fillingLines}
               fillingJobs={fillingJobs}
               blendingJobs={blendingJobs}
+              labSamples={labSamples}
+              sapStagingOrders={sapStagingOrders}
               dbConfig={dbConfig}
               apiConfig={apiConfig}
             />
