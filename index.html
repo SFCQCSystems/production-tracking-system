@@ -952,6 +952,18 @@ function AppIcon({ name, className = "w-4 h-4 inline-block shrink-0", style, ...
               <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
             </svg>
           );
+        case 'chevronLeft':
+          return (
+            <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" {...props}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          );
+        case 'chevronRight':
+          return (
+            <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" {...props}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          );
         case 'arrowDown':
           return (
             <svg className={cls} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" {...props}>
@@ -2333,6 +2345,69 @@ function normalizeSteps(steps) {
   }));
 }
 
+// Helper: ตรวจสอบว่าวันที่ตรงกับตัวกรองช่วงเวลาที่เลือกหรือไม่ (TODAY, 7DAYS, THIS_MONTH, ALL)
+function matchesDateFilter(dateIso, filter) {
+  if (!filter || filter === 'ALL') return true;
+  if (!dateIso) return false;
+  const d = new Date(dateIso);
+  if (isNaN(d.getTime())) return false;
+  const now = new Date();
+
+  if (filter === 'TODAY') {
+    return (
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate()
+    );
+  }
+  if (filter === '7DAYS') {
+    const start7 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6, 0, 0, 0, 0);
+    return d >= start7 && d <= now;
+  }
+  if (filter === 'THIS_MONTH') {
+    return (
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth()
+    );
+  }
+  return true;
+}
+
+// Helper: คำนวณจำนวนรายการตามแต่ละช่วงเวลา เพื่อนำไปแสดงในป้าย Badge
+function calcDateFilterCounts(items, getDateFn) {
+  const counts = { all: 0, today: 0, sevenDays: 0, thisMonth: 0 };
+  if (!Array.isArray(items)) return counts;
+  counts.all = items.length;
+  const now = new Date();
+  const start7 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6, 0, 0, 0, 0);
+
+  items.forEach((item) => {
+    const dateStr = getDateFn ? getDateFn(item) : (item.completedAt || item.startedAt || item.createdAt);
+    if (!dateStr) return;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return;
+
+    if (
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate()
+    ) {
+      counts.today++;
+    }
+    if (d >= start7 && d <= now) {
+      counts.sevenDays++;
+    }
+    if (
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth()
+    ) {
+      counts.thisMonth++;
+    }
+  });
+
+  return counts;
+}
+
 
     
 
@@ -2452,6 +2527,180 @@ function LiveClockWidget() {
 }
 
 LiveClockWidget;
+
+    
+
+function PaginationControl({
+  currentPage = 1,
+  totalItems = 0,
+  pageSize = 15,
+  onPageChange,
+  onPageSizeChange,
+  itemName = 'รายการ',
+  colorTheme = 'amber'
+}) {
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const startIdx = totalItems === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const endIdx = Math.min(safeCurrentPage * pageSize, totalItems);
+
+  const borderTheme = {
+    amber: 'focus:border-amber-500',
+    teal: 'focus:border-teal-500',
+    purple: 'focus:border-purple-500',
+    blue: 'focus:border-blue-500'
+  }[colorTheme] || 'focus:border-blue-500';
+
+  if (totalItems === 0) return null;
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-slate-900/90 border-t border-slate-800 text-xs text-slate-400">
+      {/* Left: Summary & Page Size Select */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span>แสดง</span>
+        <select
+          value={pageSize}
+          onChange={(e) => {
+            onPageSizeChange?.(Number(e.target.value));
+            onPageChange(1);
+          }}
+          className={`bg-slate-950 border border-slate-700/80 rounded-lg px-2 py-1 text-white text-xs font-semibold focus:outline-none transition-all ${borderTheme}`}
+        >
+          <option value={10}>10</option>
+          <option value={15}>15</option>
+          <option value={25}>25</option>
+          <option value={50}>50</option>
+        </select>
+        <span>{itemName}ต่อหน้า</span>
+        <span className="text-slate-600 hidden xs:inline">|</span>
+        <span className="font-mono text-slate-300">
+          แสดง <strong className="text-white font-bold">{startIdx}</strong> - <strong className="text-white font-bold">{endIdx}</strong> จากทั้งหมด <strong className="text-white font-bold">{totalItems}</strong> {itemName}
+        </span>
+      </div>
+
+      {/* Right: Page Navigation Buttons */}
+      <div className="flex items-center gap-1.5 self-end sm:self-auto">
+        <button
+          type="button"
+          onClick={() => onPageChange(1)}
+          disabled={safeCurrentPage <= 1}
+          className="px-2.5 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed text-slate-300 hover:text-white font-bold transition-all border border-slate-800"
+          title="หน้าแรก"
+        >
+          <span>«</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.max(1, safeCurrentPage - 1))}
+          disabled={safeCurrentPage <= 1}
+          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold transition-all flex items-center gap-1 border border-slate-700/80 shadow-xs"
+        >
+          <AppIcon name="chevronLeft" className="w-3.5 h-3.5" />
+          <span className="hidden xs:inline">ก่อนหน้า</span>
+        </button>
+
+        <div className="px-3 py-1 font-mono font-bold text-slate-200 bg-slate-950 rounded-xl border border-slate-800">
+          หน้า <span className="text-white font-black">{safeCurrentPage}</span> / {totalPages}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.min(totalPages, safeCurrentPage + 1))}
+          disabled={safeCurrentPage >= totalPages}
+          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold transition-all flex items-center gap-1 border border-slate-700/80 shadow-xs"
+        >
+          <span className="hidden xs:inline">ถัดไป</span>
+          <AppIcon name="chevronRight" className="w-3.5 h-3.5" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onPageChange(totalPages)}
+          disabled={safeCurrentPage >= totalPages}
+          className="px-2.5 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed text-slate-300 hover:text-white font-bold transition-all border border-slate-800"
+          title="หน้าสุดท้าย"
+        >
+          <span>»</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+    
+
+function DateFilterPills({
+  activeFilter = 'ALL',
+  onFilterChange,
+  counts = null,
+  colorTheme = 'amber' // 'amber' | 'teal' | 'purple' | 'blue'
+}) {
+  const themeClasses = {
+    amber: {
+      active: 'bg-amber-600 text-white shadow-md shadow-amber-950/40',
+      badge: 'bg-amber-950/80 text-amber-300'
+    },
+    teal: {
+      active: 'bg-teal-600 text-white shadow-md shadow-teal-950/40',
+      badge: 'bg-teal-950/80 text-teal-300'
+    },
+    purple: {
+      active: 'bg-purple-600 text-white shadow-md shadow-purple-950/40',
+      badge: 'bg-purple-950/80 text-purple-300'
+    },
+    blue: {
+      active: 'bg-blue-600 text-white shadow-md shadow-blue-950/40',
+      badge: 'bg-blue-950/80 text-blue-300'
+    }
+  }[colorTheme] || {
+    active: 'bg-blue-600 text-white shadow-md shadow-blue-950/40',
+    badge: 'bg-blue-950/80 text-blue-300'
+  };
+
+  const options = [
+    { id: 'TODAY', label: 'วันนี้', count: counts?.today },
+    { id: '7DAYS', label: '7 วัน', count: counts?.sevenDays },
+    { id: 'THIS_MONTH', label: 'เดือนนี้', count: counts?.thisMonth },
+    { id: 'ALL', label: 'ทั้งหมด', count: counts?.all }
+  ];
+
+  return (
+    <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
+      <span className="hidden xs:inline-flex items-center gap-1 pl-2 pr-1 text-[11px] font-semibold text-slate-400">
+        <AppIcon name="calendar" className="w-3.5 h-3.5 text-slate-400" />
+        <span className="hidden sm:inline">ช่วงเวลา:</span>
+      </span>
+      {options.map((opt) => {
+        const isActive = activeFilter === opt.id;
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => onFilterChange(opt.id)}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              isActive
+                ? themeClasses.active
+                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+            }`}
+          >
+            <span>{opt.label}</span>
+            {opt.count !== undefined && (
+              <span
+                className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                  isActive ? 'bg-black/30 text-white' : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {opt.count}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 
     // --- MODALS ---
@@ -7766,6 +8015,8 @@ SapStagingManager;
 
 
 
+
+
 // Modals
 
 
@@ -7990,6 +8241,28 @@ function App() {
       const [isCreateFillingOpen, setIsCreateFillingOpen] = useState(false);
       const [isRegisterBlendingHistoryOpen, setIsRegisterBlendingHistoryOpen] = useState(false);
       const [blendingBatchSearchQuery, setBlendingBatchSearchQuery] = useState('');
+      const [blenderHistorySearchQuery, setBlenderHistorySearchQuery] = useState('');
+      const [blenderHistoryDateFilter, setBlenderHistoryDateFilter] = useState('ALL');
+      const [blenderHistoryPage, setBlenderHistoryPage] = useState(1);
+      const [blenderHistoryPageSize, setBlenderHistoryPageSize] = useState(15);
+
+      const [fillingHistorySearchQuery, setFillingHistorySearchQuery] = useState('');
+      const [fillingHistoryDateFilter, setFillingHistoryDateFilter] = useState('ALL');
+      const [fillingHistoryPage, setFillingHistoryPage] = useState(1);
+      const [fillingHistoryPageSize, setFillingHistoryPageSize] = useState(15);
+
+      const [labHistorySearchQuery, setLabHistorySearchQuery] = useState('');
+      const [labHistoryFilterAction, setLabHistoryFilterAction] = useState('ALL');
+      const [labHistoryDateFilter, setLabHistoryDateFilter] = useState('ALL');
+      const [labHistoryPage, setLabHistoryPage] = useState(1);
+      const [labHistoryPageSize, setLabHistoryPageSize] = useState(15);
+
+      const [adminHistorySearchQuery, setAdminHistorySearchQuery] = useState('');
+      const [adminHistoryFilterModule, setAdminHistoryFilterModule] = useState('ALL');
+      const [adminHistoryDateFilter, setAdminHistoryDateFilter] = useState('ALL');
+      const [adminBlendingHistoryPage, setAdminBlendingHistoryPage] = useState(1);
+      const [adminFillingHistoryPage, setAdminFillingHistoryPage] = useState(1);
+      const [adminHistoryPageSize, setAdminHistoryPageSize] = useState(15);
       const [isAddStepModalOpen, setIsAddStepModalOpen] = useState(false);
       const [labActionModal, setLabActionModal] = useState(null); // { sample, action: 'APPROVE' | 'REQUEST_RESAMPLE' | 'REJECT_REWORK' }
 
@@ -9308,6 +9581,152 @@ function App() {
       const currentFillingJob = useMemo(() => {
         return inProgressFillingJobs.find((f) => f.id === selectedFillingId) || inProgressFillingJobs[0] || null;
       }, [inProgressFillingJobs, selectedFillingId]);
+
+      // -------------------------------------------------------------------------
+      // ฟิลเตอร์ค้นหาประวัติการส่งงานการผลิต & ผลแล็บ (Search, Date & Pagination Memos)
+      // -------------------------------------------------------------------------
+      const blenderDateCounts = useMemo(() => {
+        return calcDateFilterCounts(finishedBlendingJobs, (j) => j.completedAt || j.startedAt || j.createdAt);
+      }, [finishedBlendingJobs]);
+
+      const filteredFinishedBlendingJobs = useMemo(() => {
+        const q = (blenderHistorySearchQuery || '').trim().toLowerCase();
+        return finishedBlendingJobs.filter((j) => {
+          if (!matchesDateFilter(j.completedAt || j.startedAt || j.createdAt, blenderHistoryDateFilter)) {
+            return false;
+          }
+          if (!q) return true;
+          return (
+            (j.blenderCode && j.blenderCode.toLowerCase().includes(q)) ||
+            (j.productionNo && j.productionNo.toLowerCase().includes(q)) ||
+            (j.oilName && j.oilName.toLowerCase().includes(q)) ||
+            (j.batchNo && j.batchNo.toLowerCase().includes(q)) ||
+            (j.steps?.some((s) => s.targetTank && s.targetTank.toLowerCase().includes(q)))
+          );
+        });
+      }, [finishedBlendingJobs, blenderHistorySearchQuery, blenderHistoryDateFilter]);
+
+      const paginatedFinishedBlendingJobs = useMemo(() => {
+        const start = (blenderHistoryPage - 1) * blenderHistoryPageSize;
+        return filteredFinishedBlendingJobs.slice(start, start + blenderHistoryPageSize);
+      }, [filteredFinishedBlendingJobs, blenderHistoryPage, blenderHistoryPageSize]);
+
+      const fillingDateCounts = useMemo(() => {
+        return calcDateFilterCounts(finishedFillingJobs, (f) => f.completedAt || f.fillingCompletedAt || f.startedAt || f.createdAt);
+      }, [finishedFillingJobs]);
+
+      const filteredFinishedFillingJobs = useMemo(() => {
+        const q = (fillingHistorySearchQuery || '').trim().toLowerCase();
+        return finishedFillingJobs.filter((f) => {
+          if (!matchesDateFilter(f.completedAt || f.fillingCompletedAt || f.startedAt || f.createdAt, fillingHistoryDateFilter)) {
+            return false;
+          }
+          if (!q) return true;
+          return (
+            (f.lineCode && f.lineCode.toLowerCase().includes(q)) ||
+            (f.productionNo && f.productionNo.toLowerCase().includes(q)) ||
+            (f.itemName && f.itemName.toLowerCase().includes(q)) ||
+            (f.bulkOilBatchNo && f.bulkOilBatchNo.toLowerCase().includes(q)) ||
+            (f.note && f.note.toLowerCase().includes(q))
+          );
+        });
+      }, [finishedFillingJobs, fillingHistorySearchQuery, fillingHistoryDateFilter]);
+
+      const paginatedFinishedFillingJobs = useMemo(() => {
+        const start = (fillingHistoryPage - 1) * fillingHistoryPageSize;
+        return filteredFinishedFillingJobs.slice(start, start + fillingHistoryPageSize);
+      }, [filteredFinishedFillingJobs, fillingHistoryPage, fillingHistoryPageSize]);
+
+      const labCompletedSamples = useMemo(() => {
+        return labSamples.filter((s) => s.labAction !== 'PENDING');
+      }, [labSamples]);
+
+      const labDateCounts = useMemo(() => {
+        return calcDateFilterCounts(labCompletedSamples, (s) => s.tApproved || s.tReceived || s.tSent || s.createdAt);
+      }, [labCompletedSamples]);
+
+      const filteredLabHistorySamples = useMemo(() => {
+        const q = (labHistorySearchQuery || '').trim().toLowerCase();
+        return labCompletedSamples.filter((s) => {
+          if (!matchesDateFilter(s.tApproved || s.tReceived || s.tSent || s.createdAt, labHistoryDateFilter)) {
+            return false;
+          }
+          if (labHistoryFilterAction !== 'ALL' && s.labAction !== labHistoryFilterAction) {
+            return false;
+          }
+          if (!q) return true;
+          return (
+            (s.productionNo && s.productionNo.toLowerCase().includes(q)) ||
+            (s.batchNo && s.batchNo.toLowerCase().includes(q)) ||
+            (s.sampleTag && s.sampleTag.toLowerCase().includes(q)) ||
+            (s.sourceModule && s.sourceModule.toLowerCase().includes(q)) ||
+            (s.sentBy && s.sentBy.toLowerCase().includes(q)) ||
+            (s.inspectorId && s.inspectorId.toLowerCase().includes(q)) ||
+            (s.density30c && s.density30c.toString().includes(q)) ||
+            (s.reasonDescriptionTh && s.reasonDescriptionTh.toLowerCase().includes(q)) ||
+            (s.voidReason && s.voidReason.toLowerCase().includes(q))
+          );
+        });
+      }, [labCompletedSamples, labHistorySearchQuery, labHistoryFilterAction, labHistoryDateFilter]);
+
+      const paginatedLabHistorySamples = useMemo(() => {
+        const start = (labHistoryPage - 1) * labHistoryPageSize;
+        return filteredLabHistorySamples.slice(start, start + labHistoryPageSize);
+      }, [filteredLabHistorySamples, labHistoryPage, labHistoryPageSize]);
+
+      const adminTotalDateCounts = useMemo(() => {
+        const allCompleted = [
+          ...finishedBlendingJobs.map(j => ({ ...j, __d: j.completedAt || j.startedAt || j.createdAt })),
+          ...finishedFillingJobs.map(f => ({ ...f, __d: f.completedAt || f.fillingCompletedAt || f.startedAt || f.createdAt }))
+        ];
+        return calcDateFilterCounts(allCompleted, (x) => x.__d);
+      }, [finishedBlendingJobs, finishedFillingJobs]);
+
+      const filteredAdminBlendingJobs = useMemo(() => {
+        if (adminHistoryFilterModule === 'FILLING') return [];
+        const q = (adminHistorySearchQuery || '').trim().toLowerCase();
+        return finishedBlendingJobs.filter((j) => {
+          if (!matchesDateFilter(j.completedAt || j.startedAt || j.createdAt, adminHistoryDateFilter)) {
+            return false;
+          }
+          if (!q) return true;
+          return (
+            (j.blenderCode && j.blenderCode.toLowerCase().includes(q)) ||
+            (j.productionNo && j.productionNo.toLowerCase().includes(q)) ||
+            (j.oilName && j.oilName.toLowerCase().includes(q)) ||
+            (j.batchNo && j.batchNo.toLowerCase().includes(q)) ||
+            (j.steps?.some((s) => s.targetTank && s.targetTank.toLowerCase().includes(q)))
+          );
+        });
+      }, [finishedBlendingJobs, adminHistorySearchQuery, adminHistoryFilterModule, adminHistoryDateFilter]);
+
+      const paginatedAdminBlendingJobs = useMemo(() => {
+        const start = (adminBlendingHistoryPage - 1) * adminHistoryPageSize;
+        return filteredAdminBlendingJobs.slice(start, start + adminHistoryPageSize);
+      }, [filteredAdminBlendingJobs, adminBlendingHistoryPage, adminHistoryPageSize]);
+
+      const filteredAdminFillingJobs = useMemo(() => {
+        if (adminHistoryFilterModule === 'BLENDING') return [];
+        const q = (adminHistorySearchQuery || '').trim().toLowerCase();
+        return finishedFillingJobs.filter((f) => {
+          if (!matchesDateFilter(f.completedAt || f.fillingCompletedAt || f.startedAt || f.createdAt, adminHistoryDateFilter)) {
+            return false;
+          }
+          if (!q) return true;
+          return (
+            (f.lineCode && f.lineCode.toLowerCase().includes(q)) ||
+            (f.productionNo && f.productionNo.toLowerCase().includes(q)) ||
+            (f.itemName && f.itemName.toLowerCase().includes(q)) ||
+            (f.bulkOilBatchNo && f.bulkOilBatchNo.toLowerCase().includes(q)) ||
+            (f.note && f.note.toLowerCase().includes(q))
+          );
+        });
+      }, [finishedFillingJobs, adminHistorySearchQuery, adminHistoryFilterModule, adminHistoryDateFilter]);
+
+      const paginatedAdminFillingJobs = useMemo(() => {
+        const start = (adminFillingHistoryPage - 1) * adminHistoryPageSize;
+        return filteredAdminFillingJobs.slice(start, start + adminHistoryPageSize);
+      }, [filteredAdminFillingJobs, adminFillingHistoryPage, adminHistoryPageSize]);
 
       const activeBlendingCount = useMemo(() => {
         return inProgressBlendingJobs.length;
@@ -14655,46 +15074,100 @@ function App() {
               ) : (
                 /* ประวัติการส่งงานผสม (History / Completed Jobs) */
                 <div className="space-y-4">
-                  <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <h2 className="text-lg font-bold font-display text-white flex items-center gap-2">
-                        <AppIcon name="scroll" />
-                        <span>ประวัติการส่งงานผสม (Blender Production History)</span>
-                      </h2>
-                      <p className="text-xs text-slate-400">รายการงานผสมที่ปิดจบงานและส่งมอบเรียบร้อยแล้วทั้งหมด พร้อมบันทึกผลแล็บและเวลารวมสุทธิ</p>
-                    </div>
-                    <span className="text-xs text-emerald-400 font-mono font-bold bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 shrink-0">
-                      ปิดจบงานแล้ว {finishedBlendingJobs.length} Job
-                    </span>
-                  </div>
+                      <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <h2 className="text-lg font-bold font-display text-white flex items-center gap-2">
+                            <AppIcon name="scroll" />
+                            <span>ประวัติการส่งงานผสม (Blender Production History)</span>
+                          </h2>
+                          <p className="text-xs text-slate-400">รายการงานผสมที่ปิดจบงานและส่งมอบเรียบร้อยแล้วทั้งหมด พร้อมบันทึกผลแล็บและเวลารวมสุทธิ</p>
+                        </div>
+                        <span className="text-xs text-emerald-400 font-mono font-bold bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 shrink-0">
+                          ปิดจบงานแล้ว {finishedBlendingJobs.length} Job
+                        </span>
+                      </div>
 
-                  <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-slate-800 text-slate-300 text-xs font-bold border-b border-slate-700">
-                            <th className="text-left px-4 py-2.5">ถังผสม</th>
-                            <th className="text-left px-3 py-2.5">Production No. / ชื่อน้ำมัน</th>
-                            <th className="text-left px-3 py-2.5">Batch</th>
-                            <th className="text-left px-3 py-2.5 whitespace-nowrap min-w-[110px]">ถัง ATA / ถังพัก</th>
-                            <th className="text-left px-3 py-2.5 whitespace-nowrap min-w-[150px]">ผลแล็บ Blending FG</th>
-                            <th className="text-center px-3 py-2.5 min-w-[280px]">การเก็บตัวอย่าง (Resample)</th>
-                            <th className="text-center px-3 py-2.5 whitespace-nowrap min-w-[120px]">ผู้ส่ง</th>
-                            <th className="text-center px-3 py-2.5 whitespace-nowrap min-w-[150px]">ผู้ตรวจ</th>
-                            <th className="text-center px-2 py-2.5 whitespace-nowrap min-w-[120px]">เวลาเริ่ม - เวลาจบ</th>
-                            <th className="text-center px-2 py-2.5 whitespace-nowrap min-w-[110px]"> เวลารวมสุทธิ</th>
-                            <th className="text-center px-4 py-2.5 whitespace-nowrap min-w-[160px]">สถานะ</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {finishedBlendingJobs.length === 0 ? (
-                            <tr>
-                              <td colSpan="11" className="p-8 text-center text-slate-500">
-                                ยังไม่มีประวัติงานผสมที่ดำเนินการเสร็จสิ้น
-                              </td>
-                            </tr>
-                          ) : (
-                            finishedBlendingJobs.map((j) => {
+                      {/* Search & Filter Bar */}
+                      <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-3 shadow-lg flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                        <div className="flex-1 relative">
+                          <AppIcon name="search" className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            value={blenderHistorySearchQuery}
+                            onChange={(e) => {
+                              setBlenderHistorySearchQuery(e.target.value);
+                              setBlenderHistoryPage(1);
+                            }}
+                            placeholder="ค้นหาตามเลข Production No., Batch No., ชื่อน้ำมัน, ถังผสม (เช่น BLB01)..."
+                            className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-950 border border-slate-700/80 text-white text-xs placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-all"
+                          />
+                          {blenderHistorySearchQuery && (
+                            <button
+                              onClick={() => {
+                                setBlenderHistorySearchQuery('');
+                                setBlenderHistoryPage(1);
+                              }}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs p-1"
+                              title="ล้างคำค้นหา"
+                            >
+                              <AppIcon name="close" className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between md:justify-end gap-2 text-xs">
+                          <DateFilterPills
+                            activeFilter={blenderHistoryDateFilter}
+                            onFilterChange={(f) => {
+                              setBlenderHistoryDateFilter(f);
+                              setBlenderHistoryPage(1);
+                            }}
+                            counts={blenderDateCounts}
+                            colorTheme="amber"
+                          />
+                          {(blenderHistorySearchQuery || blenderHistoryDateFilter !== 'ALL') && (
+                            <button
+                              onClick={() => {
+                                setBlenderHistorySearchQuery('');
+                                setBlenderHistoryDateFilter('ALL');
+                                setBlenderHistoryPage(1);
+                              }}
+                              className="text-xs text-slate-300 hover:text-white px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 font-bold border border-slate-700 transition-all shrink-0"
+                            >
+                              ล้างค้นหา
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-slate-800 text-slate-300 text-xs font-bold border-b border-slate-700">
+                                <th className="text-left px-4 py-2.5">ถังผสม</th>
+                                <th className="text-left px-3 py-2.5">Production No. / ชื่อน้ำมัน</th>
+                                <th className="text-left px-3 py-2.5">Batch</th>
+                                <th className="text-left px-3 py-2.5 whitespace-nowrap min-w-[110px]">ถัง ATA / ถังพัก</th>
+                                <th className="text-left px-3 py-2.5 whitespace-nowrap min-w-[150px]">ผลแล็บ Blending FG</th>
+                                <th className="text-center px-3 py-2.5 min-w-[280px]">การเก็บตัวอย่าง (Resample)</th>
+                                <th className="text-center px-3 py-2.5 whitespace-nowrap min-w-[120px]">ผู้ส่ง</th>
+                                <th className="text-center px-3 py-2.5 whitespace-nowrap min-w-[150px]">ผู้ตรวจ</th>
+                                <th className="text-center px-2 py-2.5 whitespace-nowrap min-w-[120px]">เวลาเริ่ม - เวลาจบ</th>
+                                <th className="text-center px-2 py-2.5 whitespace-nowrap min-w-[110px]"> เวลารวมสุทธิ</th>
+                                <th className="text-center px-4 py-2.5 whitespace-nowrap min-w-[160px]">สถานะ</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filteredFinishedBlendingJobs.length === 0 ? (
+                                <tr>
+                                  <td colSpan="11" className="p-8 text-center text-slate-500">
+                                    {blenderHistorySearchQuery || blenderHistoryDateFilter !== 'ALL'
+                                      ? `ไม่พบประวัติงานผสมที่ตรงกับเงื่อนไขการค้นหา`
+                                      : 'ยังไม่มีประวัติงานผสมที่ดำเนินการเสร็จสิ้น'}
+                                  </td>
+                                </tr>
+                              ) : (
+                                paginatedFinishedBlendingJobs.map((j) => {
                               const sampleHistory = getSampleHistory('BLENDING', j.productionNo, 'Blending FG (ผสมจริง)');
                               const latestSample = sampleHistory[sampleHistory.length - 1];
                               const s1 = j.steps?.find((s) => s.stepNumber === 1);
@@ -14776,6 +15249,16 @@ function App() {
                         </tbody>
                       </table>
                     </div>
+                    {/* Pagination Bar */}
+                    <PaginationControl
+                      currentPage={blenderHistoryPage}
+                      totalItems={filteredFinishedBlendingJobs.length}
+                      pageSize={blenderHistoryPageSize}
+                      onPageChange={setBlenderHistoryPage}
+                      onPageSizeChange={setBlenderHistoryPageSize}
+                      itemName="Job"
+                      colorTheme="amber"
+                    />
                   </div>
                 </div>
               )
@@ -15535,45 +16018,99 @@ function App() {
               ) : (
                 /* ประวัติการส่งงานบรรจุ (Filling Production History) */
                 <div className="space-y-4">
-                  <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <h2 className="text-lg font-bold font-display text-white flex items-center gap-2">
-                        <AppIcon name="scroll" />
-                        <span>ประวัติการส่งงานบรรจุ (Filling Production History)</span>
-                      </h2>
-                      <p className="text-xs text-slate-400">รายการงานบรรจุที่ปิดจบงานและส่งมอบเรียบร้อยแล้วทั้งหมด พร้อมผลตรวจ First Fill และเวลารวมสุทธิ</p>
-                    </div>
-                    <span className="text-xs text-emerald-400 font-mono font-bold bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 shrink-0">
-                      ปิดจบงานแล้ว {finishedFillingJobs.length} Job
-                    </span>
-                  </div>
+                      <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <h2 className="text-lg font-bold font-display text-white flex items-center gap-2">
+                            <AppIcon name="scroll" />
+                            <span>ประวัติการส่งงานบรรจุ (Filling Production History)</span>
+                          </h2>
+                          <p className="text-xs text-slate-400">รายการงานบรรจุที่ปิดจบงานและส่งมอบเรียบร้อยแล้วทั้งหมด พร้อมผลตรวจ First Fill และเวลารวมสุทธิ</p>
+                        </div>
+                        <span className="text-xs text-emerald-400 font-mono font-bold bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 shrink-0">
+                          ปิดจบงานแล้ว {finishedFillingJobs.length} Job
+                        </span>
+                      </div>
 
-                  <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-slate-800 text-slate-300 text-xs font-bold border-b border-slate-700">
-                            <th className="text-left px-4 py-2.5">ไลน์บรรจุ</th>
-                            <th className="text-left px-3 py-2.5">Production No. / ชื่อสินค้า</th>
-                            <th className="text-left px-3 py-2.5">Batch น้ำมัน</th>
-                            <th className="text-center px-2 py-2.5">ผล First Fill (30°C)</th>
-                            <th className="text-center px-3 py-2.5 min-w-[280px]">การเก็บตัวอย่าง (Resample)</th>
-                            <th className="text-center px-3 py-2.5 whitespace-nowrap min-w-[120px]">ผู้ส่ง</th>
-                            <th className="text-center px-3 py-2.5 whitespace-nowrap min-w-[150px]">ผู้ตรวจ</th>
-                            <th className="text-center px-2 py-2.5 whitespace-nowrap min-w-[120px]">เวลาเริ่ม - เวลาจบ</th>
-                            <th className="text-center px-2 py-2.5 whitespace-nowrap min-w-[110px]"> เวลารวมสุทธิ</th>
-                            <th className="text-center px-4 py-2.5 whitespace-nowrap min-w-[160px]">สถานะ</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {finishedFillingJobs.length === 0 ? (
-                            <tr>
-                              <td colSpan="10" className="p-8 text-center text-slate-500">
-                                ยังไม่มีประวัติงานบรรจุที่ดำเนินการเสร็จสิ้น
-                              </td>
-                            </tr>
-                          ) : (
-                            finishedFillingJobs.map((f) => {
+                      {/* Search & Filter Bar */}
+                      <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-3 shadow-lg flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                        <div className="flex-1 relative">
+                          <AppIcon name="search" className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            value={fillingHistorySearchQuery}
+                            onChange={(e) => {
+                              setFillingHistorySearchQuery(e.target.value);
+                              setFillingHistoryPage(1);
+                            }}
+                            placeholder="ค้นหาตามเลข Production No., Batch น้ำมัน, ชื่อสินค้า, ไลน์บรรจุ (เช่น Line 1)..."
+                            className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-950 border border-slate-700/80 text-white text-xs placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-all"
+                          />
+                          {fillingHistorySearchQuery && (
+                            <button
+                              onClick={() => {
+                                setFillingHistorySearchQuery('');
+                                setFillingHistoryPage(1);
+                              }}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs p-1"
+                              title="ล้างคำค้นหา"
+                            >
+                              <AppIcon name="close" className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between md:justify-end gap-2 text-xs">
+                          <DateFilterPills
+                            activeFilter={fillingHistoryDateFilter}
+                            onFilterChange={(f) => {
+                              setFillingHistoryDateFilter(f);
+                              setFillingHistoryPage(1);
+                            }}
+                            counts={fillingDateCounts}
+                            colorTheme="teal"
+                          />
+                          {(fillingHistorySearchQuery || fillingHistoryDateFilter !== 'ALL') && (
+                            <button
+                              onClick={() => {
+                                setFillingHistorySearchQuery('');
+                                setFillingHistoryDateFilter('ALL');
+                                setFillingHistoryPage(1);
+                              }}
+                              className="text-xs text-slate-300 hover:text-white px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 font-bold border border-slate-700 transition-all shrink-0"
+                            >
+                              ล้างค้นหา
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-slate-800 text-slate-300 text-xs font-bold border-b border-slate-700">
+                                <th className="text-left px-4 py-2.5">ไลน์บรรจุ</th>
+                                <th className="text-left px-3 py-2.5">Production No. / ชื่อสินค้า</th>
+                                <th className="text-left px-3 py-2.5">Batch น้ำมัน</th>
+                                <th className="text-center px-2 py-2.5">ผล First Fill (30°C)</th>
+                                <th className="text-center px-3 py-2.5 min-w-[280px]">การเก็บตัวอย่าง (Resample)</th>
+                                <th className="text-center px-3 py-2.5 whitespace-nowrap min-w-[120px]">ผู้ส่ง</th>
+                                <th className="text-center px-3 py-2.5 whitespace-nowrap min-w-[150px]">ผู้ตรวจ</th>
+                                <th className="text-center px-2 py-2.5 whitespace-nowrap min-w-[120px]">เวลาเริ่ม - เวลาจบ</th>
+                                <th className="text-center px-2 py-2.5 whitespace-nowrap min-w-[110px]"> เวลารวมสุทธิ</th>
+                                <th className="text-center px-4 py-2.5 whitespace-nowrap min-w-[160px]">สถานะ</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filteredFinishedFillingJobs.length === 0 ? (
+                                <tr>
+                                  <td colSpan="10" className="p-8 text-center text-slate-500">
+                                    {fillingHistorySearchQuery || fillingHistoryDateFilter !== 'ALL'
+                                      ? `ไม่พบประวัติงานบรรจุที่ตรงกับเงื่อนไขการค้นหา`
+                                      : 'ยังไม่มีประวัติงานบรรจุที่ดำเนินการเสร็จสิ้น'}
+                                  </td>
+                                </tr>
+                              ) : (
+                                paginatedFinishedFillingJobs.map((f) => {
                               const fillHistory = getSampleHistory('FILLING', f.productionNo, 'First Fill (ถังแรก)', f.bulkOilBatchNo);
                               const latestFillSample = fillHistory[fillHistory.length - 1];
                               const approvedFillSample = fillHistory.find((s) => s.labAction === 'APPROVE') || latestFillSample;
@@ -15645,6 +16182,16 @@ function App() {
                         </tbody>
                       </table>
                     </div>
+                    {/* Pagination Bar */}
+                    <PaginationControl
+                      currentPage={fillingHistoryPage}
+                      totalItems={filteredFinishedFillingJobs.length}
+                      pageSize={fillingHistoryPageSize}
+                      onPageChange={setFillingHistoryPage}
+                      onPageSizeChange={setFillingHistoryPageSize}
+                      itemName="Job"
+                      colorTheme="teal"
+                    />
                   </div>
                 </div>
               )
@@ -16082,6 +16629,92 @@ function App() {
               ) : (
                 /* ประวัติการส่งตรวจและผลวิเคราะห์แล็บ (QC Lab History) */
                 <div className="space-y-4">
+                  {/* Header Banner */}
+                  <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xl">
+                    <div>
+                      <h2 className="text-lg font-bold font-display text-white flex items-center gap-2">
+                        <AppIcon name="scroll" />
+                        <span>ประวัติการส่งตรวจและผลวิเคราะห์แล็บ (QC Lab History)</span>
+                      </h2>
+                      <p className="text-xs text-slate-400">รายการประวัติผลตรวจแล็บที่เสร็จสิ้นทั้งหมด พร้อมสถิติเวลาวิเคราะห์ Pure Lab TAT และการสอบกลับ</p>
+                    </div>
+                    <span className="text-xs text-purple-400 font-mono font-bold bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 shrink-0">
+                      ตรวจเสร็จสิ้นแล้ว {labSamples.filter((s) => s.labAction !== 'PENDING').length} รายการ
+                    </span>
+                  </div>
+
+                  {/* Search & Filter Bar */}
+                  <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-3 shadow-lg flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                    <div className="flex-1 relative">
+                      <AppIcon name="search" className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={labHistorySearchQuery}
+                        onChange={(e) => {
+                          setLabHistorySearchQuery(e.target.value);
+                          setLabHistoryPage(1);
+                        }}
+                        placeholder="ค้นหาตามเลข Production No., Batch No., ชนิดตัวอย่าง, ผู้ส่ง, ผู้ตรวจ..."
+                        className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-950 border border-slate-700/80 text-white text-xs placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-all"
+                      />
+                      {labHistorySearchQuery && (
+                        <button
+                          onClick={() => {
+                            setLabHistorySearchQuery('');
+                            setLabHistoryPage(1);
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs p-1"
+                          title="ล้างคำค้นหา"
+                        >
+                          <AppIcon name="close" className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between md:justify-end gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-slate-400 font-semibold whitespace-nowrap">ผลตรวจ:</span>
+                        <select
+                          value={labHistoryFilterAction}
+                          onChange={(e) => {
+                            setLabHistoryFilterAction(e.target.value);
+                            setLabHistoryPage(1);
+                          }}
+                          className="px-2.5 py-1.5 rounded-xl bg-slate-950 border border-slate-700/80 text-xs text-white focus:outline-none focus:border-purple-500 font-medium"
+                        >
+                          <option value="ALL">ผลตรวจทั้งหมด</option>
+                          <option value="APPROVE">ผ่านเกณฑ์ (Approve)</option>
+                          <option value="REQUEST_RESAMPLE">ขอเก็บซ้ำ (Resample)</option>
+                          <option value="REJECT_REWORK">ไม่ผ่าน (Off Spec)</option>
+                          <option value="VOID">ยกเลิก (VOID)</option>
+                        </select>
+                      </div>
+
+                      <DateFilterPills
+                        activeFilter={labHistoryDateFilter}
+                        onFilterChange={(f) => {
+                          setLabHistoryDateFilter(f);
+                          setLabHistoryPage(1);
+                        }}
+                        counts={labDateCounts}
+                        colorTheme="purple"
+                      />
+
+                      {(labHistorySearchQuery || labHistoryFilterAction !== 'ALL' || labHistoryDateFilter !== 'ALL') && (
+                        <button
+                          onClick={() => {
+                            setLabHistorySearchQuery('');
+                            setLabHistoryFilterAction('ALL');
+                            setLabHistoryDateFilter('ALL');
+                            setLabHistoryPage(1);
+                          }}
+                          className="text-xs text-slate-300 hover:text-white px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 font-bold border border-slate-700 transition-all shrink-0"
+                        >
+                          ล้างค้นหา
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl overflow-hidden shadow-xl">
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
@@ -16100,14 +16733,16 @@ function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {labSamples.filter((s) => s.labAction !== 'PENDING').length === 0 ? (
+                          {filteredLabHistorySamples.length === 0 ? (
                             <tr>
                               <td colSpan="10" className="p-8 text-center text-slate-500">
-                                ยังไม่มีประวัติผลตรวจแล็บที่เสร็จสิ้น
+                                {labHistorySearchQuery || labHistoryFilterAction !== 'ALL' || labHistoryDateFilter !== 'ALL'
+                                  ? 'ไม่พบประวัติผลตรวจแล็บที่ตรงกับเงื่อนไขการค้นหา'
+                                  : 'ยังไม่มีประวัติผลตรวจแล็บที่เสร็จสิ้น'}
                               </td>
                             </tr>
                           ) : (
-                            labSamples.filter((s) => s.labAction !== 'PENDING').map((s) => (
+                            paginatedLabHistorySamples.map((s) => (
                               <tr key={s.sampleId} className="border-b border-slate-800 hover:bg-slate-800/40">
                                 <td className="px-4 py-3 font-mono font-black text-amber-400 text-base">{s.productionNo}</td>
                                 <td className="px-3 py-3">
@@ -16219,6 +16854,16 @@ function App() {
                         </tbody>
                       </table>
                     </div>
+                    {/* Pagination Bar */}
+                    <PaginationControl
+                      currentPage={labHistoryPage}
+                      totalItems={filteredLabHistorySamples.length}
+                      pageSize={labHistoryPageSize}
+                      onPageChange={setLabHistoryPage}
+                      onPageSizeChange={setLabHistoryPageSize}
+                      itemName="รายการ"
+                      colorTheme="purple"
+                    />
                   </div>
                 </div>
               )
@@ -18848,54 +19493,158 @@ function App() {
               ) : (
                 /* ประวัติการส่งงานการผลิตรวมทุกระบบ (Master Production History) */
                 <div className="space-y-6">
-                  <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <h2 className="text-lg font-bold font-display text-white flex items-center gap-2">
-                        <AppIcon name="scroll" />
-                        <span>ประวัติการส่งงานการผลิตรวมทุกระบบ (Master Production History)</span>
-                      </h2>
-                      <p className="text-xs text-slate-400">ตรวจสอบประวัติงานที่ปิดจบทั้งหมด ทั้งฝ่ายผสม (Blender) และฝ่ายบรรจุ (Filling)</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <span className="text-xs text-amber-400 font-mono font-bold bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
-                        ผสมเสร็จ {finishedBlendingJobs.length} Job
-                      </span>
-                      <span className="text-xs text-teal-400 font-mono font-bold bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
-                        บรรจุเสร็จ {finishedFillingJobs.length} Job
-                      </span>
-                    </div>
-                  </div>
+                      <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xl">
+                        <div>
+                          <h2 className="text-lg font-bold font-display text-white flex items-center gap-2">
+                            <AppIcon name="scroll" />
+                            <span>ประวัติการส่งงานการผลิตรวมทุกระบบ (Master Production History)</span>
+                          </h2>
+                          <p className="text-xs text-slate-400">ตรวจสอบประวัติงานที่ปิดจบทั้งหมด ทั้งฝ่ายผสม (Blender) และฝ่ายบรรจุ (Filling)</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="text-xs text-amber-400 font-mono font-bold bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+                            ผสมเสร็จ {finishedBlendingJobs.length} Job
+                          </span>
+                          <span className="text-xs text-teal-400 font-mono font-bold bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+                            บรรจุเสร็จ {finishedFillingJobs.length} Job
+                          </span>
+                        </div>
+                      </div>
 
-                  {/* ตารางประวัติฝ่ายผสม */}
-                  <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl overflow-hidden shadow-xl p-4 space-y-3">
-                    <h3 className="font-bold text-amber-400 text-sm flex items-center gap-2">
-                      <AppIcon name="blender" />
-                      <span>ประวัติงานผสม (Blender History): {finishedBlendingJobs.length} รายการ</span>
-                    </h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-slate-800 text-slate-300 text-xs font-bold border-b border-slate-700">
-                            <th className="text-left px-4 py-2">ถังผสม</th>
-                            <th className="text-left px-3 py-2">Production No. / ชื่อน้ำมัน</th>
-                            <th className="text-left px-3 py-2">Batch</th>
-                            <th className="text-left px-3 py-2">ถัง ATA / ถังพัก</th>
-                            <th className="text-center px-3 py-2 min-w-[260px]">การเก็บตัวอย่าง (Resample)</th>
-                            <th className="text-center px-2 py-2">ผู้ส่ง</th>
-                            <th className="text-center px-2 py-2">ผู้ตรวจ</th>
-                            <th className="text-center px-2 py-2">เวลารวมสุทธิ</th>
-                            <th className="text-center px-4 py-2 whitespace-nowrap min-w-[150px]">สถานะ</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {finishedBlendingJobs.length === 0 ? (
-                            <tr>
-                              <td colSpan="9" className="p-4 text-center text-slate-500 text-xs">
-                                ยังไม่มีประวัติงานผสมที่ดำเนินการเสร็จสิ้น
-                              </td>
-                            </tr>
-                          ) : (
-                            finishedBlendingJobs.map((j) => {
+                      {/* Master Search & Module Filter Bar */}
+                      <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-3.5 shadow-lg flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                        <div className="flex-1 relative">
+                          <AppIcon name="search" className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            value={adminHistorySearchQuery}
+                            onChange={(e) => {
+                              setAdminHistorySearchQuery(e.target.value);
+                              setAdminBlendingHistoryPage(1);
+                              setAdminFillingHistoryPage(1);
+                            }}
+                            placeholder="ค้นหาประวัติการผลิตรวม: เลข Production No., Batch, ชื่อน้ำมัน/สินค้า, ถังผสม, ไลน์บรรจุ..."
+                            className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-950 border border-slate-700/80 text-white text-xs placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-all"
+                          />
+                          {adminHistorySearchQuery && (
+                            <button
+                              onClick={() => {
+                                setAdminHistorySearchQuery('');
+                                setAdminBlendingHistoryPage(1);
+                                setAdminFillingHistoryPage(1);
+                              }}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs p-1"
+                              title="ล้างคำค้นหา"
+                            >
+                              <AppIcon name="close" className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between md:justify-end gap-2">
+                          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
+                            <button
+                              type="button"
+                              onClick={() => setAdminHistoryFilterModule('ALL')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                                adminHistoryFilterModule === 'ALL'
+                                  ? 'bg-blue-600 text-white shadow-sm'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              ทั้งหมด
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setAdminHistoryFilterModule('BLENDING')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                                adminHistoryFilterModule === 'BLENDING'
+                                  ? 'bg-amber-600 text-white shadow-sm'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <span>ฝ่ายผสม</span>
+                              <span className="text-[10px] font-mono opacity-80">({finishedBlendingJobs.length})</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setAdminHistoryFilterModule('FILLING')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                                adminHistoryFilterModule === 'FILLING'
+                                  ? 'bg-teal-600 text-white shadow-sm'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <span>ฝ่ายบรรจุ</span>
+                              <span className="text-[10px] font-mono opacity-80">({finishedFillingJobs.length})</span>
+                            </button>
+                          </div>
+
+                          <DateFilterPills
+                            activeFilter={adminHistoryDateFilter}
+                            onFilterChange={(f) => {
+                              setAdminHistoryDateFilter(f);
+                              setAdminBlendingHistoryPage(1);
+                              setAdminFillingHistoryPage(1);
+                            }}
+                            counts={adminTotalDateCounts}
+                            colorTheme="blue"
+                          />
+
+                          {(adminHistorySearchQuery || adminHistoryFilterModule !== 'ALL' || adminHistoryDateFilter !== 'ALL') && (
+                            <button
+                              onClick={() => {
+                                setAdminHistorySearchQuery('');
+                                setAdminHistoryFilterModule('ALL');
+                                setAdminHistoryDateFilter('ALL');
+                                setAdminBlendingHistoryPage(1);
+                                setAdminFillingHistoryPage(1);
+                              }}
+                              className="text-xs text-slate-300 hover:text-white px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 font-bold border border-slate-700 transition-all shrink-0"
+                            >
+                              ล้างค้นหา
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* ตารางประวัติฝ่ายผสม */}
+                      {(adminHistoryFilterModule === 'ALL' || adminHistoryFilterModule === 'BLENDING') && (
+                      <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl overflow-hidden shadow-xl p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-bold text-amber-400 text-sm flex items-center gap-2">
+                            <AppIcon name="blender" />
+                            <span>ประวัติงานผสม (Blender History)</span>
+                          </h3>
+                          <span className="text-xs text-slate-400 font-mono">
+                            แสดง <span className="text-amber-400 font-bold">{filteredAdminBlendingJobs.length}</span> จาก {finishedBlendingJobs.length} รายการ
+                          </span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-slate-800 text-slate-300 text-xs font-bold border-b border-slate-700">
+                                <th className="text-left px-4 py-2">ถังผสม</th>
+                                <th className="text-left px-3 py-2">Production No. / ชื่อน้ำมัน</th>
+                                <th className="text-left px-3 py-2">Batch</th>
+                                <th className="text-left px-3 py-2">ถัง ATA / ถังพัก</th>
+                                <th className="text-center px-3 py-2 min-w-[260px]">การเก็บตัวอย่าง (Resample)</th>
+                                <th className="text-center px-2 py-2">ผู้ส่ง</th>
+                                <th className="text-center px-2 py-2">ผู้ตรวจ</th>
+                                <th className="text-center px-2 py-2">เวลารวมสุทธิ</th>
+                                <th className="text-center px-4 py-2 whitespace-nowrap min-w-[150px]">สถานะ</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filteredAdminBlendingJobs.length === 0 ? (
+                                <tr>
+                                  <td colSpan="9" className="p-4 text-center text-slate-500 text-xs">
+                                    {adminHistorySearchQuery || adminHistoryDateFilter !== 'ALL'
+                                      ? `ไม่พบประวัติงานผสมที่ตรงกับเงื่อนไขการค้นหา`
+                                      : 'ยังไม่มีประวัติงานผสมที่ดำเนินการเสร็จสิ้น'}
+                                  </td>
+                                </tr>
+                              ) : (
+                                paginatedAdminBlendingJobs.map((j) => {
                               const bSamples = labSamples.filter((s) => s.productionNo === j.productionNo && s.sourceModule === 'BLENDING');
                               const latestBSample = bSamples[bSamples.length - 1];
                               const approvedBSample = bSamples.find((s) => s.labAction === 'APPROVE') || latestBSample;
@@ -18942,38 +19691,57 @@ function App() {
                         </tbody>
                       </table>
                     </div>
+                    {/* Pagination Bar */}
+                    <PaginationControl
+                      currentPage={adminBlendingHistoryPage}
+                      totalItems={filteredAdminBlendingJobs.length}
+                      pageSize={adminHistoryPageSize}
+                      onPageChange={setAdminBlendingHistoryPage}
+                      onPageSizeChange={setAdminHistoryPageSize}
+                      itemName="Job"
+                      colorTheme="amber"
+                    />
                   </div>
+                  )}
 
-                  {/* ตารางประวัติฝ่ายบรรจุ */}
-                  <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl overflow-hidden shadow-xl p-4 space-y-3">
-                    <h3 className="font-bold text-teal-400 text-sm flex items-center gap-2">
-                      <AppIcon name="box" />
-                      <span>ประวัติงานบรรจุ (Filling History): {finishedFillingJobs.length} รายการ</span>
-                    </h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-slate-800 text-slate-300 text-xs font-bold border-b border-slate-700">
-                            <th className="text-left px-4 py-2">ไลน์บรรจุ</th>
-                            <th className="text-left px-3 py-2">Production No. / สินค้า</th>
-                            <th className="text-left px-3 py-2">Batch น้ำมัน</th>
-                            <th className="text-center px-2 py-2">First Fill Density</th>
-                            <th className="text-center px-3 py-2 min-w-[260px]">การเก็บตัวอย่าง (Resample)</th>
-                            <th className="text-center px-2 py-2">ผู้ส่ง</th>
-                            <th className="text-center px-2 py-2">ผู้ตรวจ</th>
-                            <th className="text-center px-2 py-2">เวลารวมสุทธิ</th>
-                            <th className="text-center px-4 py-2 whitespace-nowrap min-w-[150px]">สถานะ</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {finishedFillingJobs.length === 0 ? (
-                            <tr>
-                              <td colSpan="9" className="p-4 text-center text-slate-500 text-xs">
-                                ยังไม่มีประวัติงานบรรจุที่ดำเนินการเสร็จสิ้น
-                              </td>
-                            </tr>
-                          ) : (
-                            finishedFillingJobs.map((f) => {
+                      {/* ตารางประวัติฝ่ายบรรจุ */}
+                      {(adminHistoryFilterModule === 'ALL' || adminHistoryFilterModule === 'FILLING') && (
+                      <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl overflow-hidden shadow-xl p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-bold text-teal-400 text-sm flex items-center gap-2">
+                            <AppIcon name="box" />
+                            <span>ประวัติงานบรรจุ (Filling History)</span>
+                          </h3>
+                          <span className="text-xs text-slate-400 font-mono">
+                            แสดง <span className="text-teal-400 font-bold">{filteredAdminFillingJobs.length}</span> จาก {finishedFillingJobs.length} รายการ
+                          </span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-slate-800 text-slate-300 text-xs font-bold border-b border-slate-700">
+                                <th className="text-left px-4 py-2">ไลน์บรรจุ</th>
+                                <th className="text-left px-3 py-2">Production No. / สินค้า</th>
+                                <th className="text-left px-3 py-2">Batch น้ำมัน</th>
+                                <th className="text-center px-2 py-2">First Fill Density</th>
+                                <th className="text-center px-3 py-2 min-w-[260px]">การเก็บตัวอย่าง (Resample)</th>
+                                <th className="text-center px-2 py-2">ผู้ส่ง</th>
+                                <th className="text-center px-2 py-2">ผู้ตรวจ</th>
+                                <th className="text-center px-2 py-2">เวลารวมสุทธิ</th>
+                                <th className="text-center px-4 py-2 whitespace-nowrap min-w-[150px]">สถานะ</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filteredAdminFillingJobs.length === 0 ? (
+                                <tr>
+                                  <td colSpan="9" className="p-4 text-center text-slate-500 text-xs">
+                                    {adminHistorySearchQuery || adminHistoryDateFilter !== 'ALL'
+                                      ? `ไม่พบประวัติงานบรรจุที่ตรงกับเงื่อนไขการค้นหา`
+                                      : 'ยังไม่มีประวัติงานบรรจุที่ดำเนินการเสร็จสิ้น'}
+                                  </td>
+                                </tr>
+                              ) : (
+                                paginatedAdminFillingJobs.map((f) => {
                               const fSamples = labSamples.filter((s) => s.productionNo === f.productionNo && s.sourceModule === 'FILLING');
                               const latestFSample = fSamples[fSamples.length - 1];
                               const approvedFSample = fSamples.find((s) => s.labAction === 'APPROVE') || latestFSample;
@@ -19002,7 +19770,7 @@ function App() {
                                         const pkg = packagingRequests.find((p) => p.productionNo === f.productionNo && p.lineCode === f.lineCode);
                                         setTimelineJob({ type: 'FILLING', job: f, samples: fSamples, pkgReq: pkg });
                                       }}
-                                      className="mt-1 px-2 py-0.5 rounded bg-teal-600/30 hover:bg-teal-600 text-teal-300 hover:text-white border border-teal-500/40 text-[10px] font-bold inline-flex items-center gap-1 transition-all"
+                                      className="mt-1 px-2.5 py-1 rounded-lg bg-teal-600/30 hover:bg-teal-600 text-teal-300 hover:text-white border border-teal-500/40 text-[10px] font-bold inline-flex items-center gap-1 transition-all"
                                       title="ดูเวลาเริ่ม-เสร็จของแต่ละขั้นตอนอย่างละเอียด"
                                     >
                                        ดูเวลาแต่ละขั้น
@@ -19018,7 +19786,18 @@ function App() {
                         </tbody>
                       </table>
                     </div>
+                    {/* Pagination Bar */}
+                    <PaginationControl
+                      currentPage={adminFillingHistoryPage}
+                      totalItems={filteredAdminFillingJobs.length}
+                      pageSize={adminHistoryPageSize}
+                      onPageChange={setAdminFillingHistoryPage}
+                      onPageSizeChange={setAdminHistoryPageSize}
+                      itemName="Job"
+                      colorTheme="teal"
+                    />
                   </div>
+                  )}
                 </div>
               )
             )}
