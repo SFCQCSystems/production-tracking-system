@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>Production Tracking System</title>
   
   <!-- Tailwind CSS CDN -->
@@ -19131,18 +19134,18 @@ class ErrorBoundary extends React.Component {
           <div className="flex flex-wrap gap-3 justify-center">
             <button
               onClick={() => {
-                localStorage.clear();
-                window.location.reload();
+                try { localStorage.clear(); } catch {}
+                window.location.href = window.location.pathname + '?reset=' + Date.now();
               }}
-              className="px-5 py-2.5 bg-rose-600 rounded-xl font-bold text-sm hover:bg-rose-500 shadow-lg"
+              className="px-5 py-2.5 bg-rose-600 rounded-xl font-bold text-sm hover:bg-rose-500 shadow-lg cursor-pointer"
             >
               รีเซ็ตฐานข้อมูลเริ่มต้น
             </button>
             <button
               onClick={() => {
-                window.location.reload();
+                window.location.href = window.location.pathname + '?reload=' + Date.now();
               }}
-              className="px-5 py-2.5 bg-blue-600 rounded-xl font-bold text-sm hover:bg-blue-500 shadow-lg"
+              className="px-5 py-2.5 bg-blue-600 rounded-xl font-bold text-sm hover:bg-blue-500 shadow-lg cursor-pointer"
             >
               กลับหน้า Portal Hub
             </button>
