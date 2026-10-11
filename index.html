@@ -2304,6 +2304,33 @@ function getDefaultServerUrl() {
   return 'http://localhost:3001';
 }
 
+function createInitialSteps() {
+  return [
+    { stepNumber: 1, name: 'Flush ATA (ล้างอ่างผสม/ถังชั่ง)', status: 'idle', isFlush: true, startedAt: null, finishedAt: null },
+    { stepNumber: 2, name: 'Flush Blender (ล้างถังผสมหลัก)', status: 'idle', isFlush: true, startedAt: null, finishedAt: null },
+    { stepNumber: 3, name: 'Mix Base (กวนผสมน้ำมันพื้นฐาน)', status: 'idle', isFlush: false, startedAt: null, finishedAt: null },
+    { stepNumber: 4, name: 'Blending FG (ผสมเนื้อน้ำมันจริง)', status: 'idle', isFlush: false, startedAt: null, finishedAt: null },
+    { stepNumber: 5, name: 'Flush Production Tank (ล้างถังพัก)', status: 'idle', isFlush: true, startedAt: null, finishedAt: null }
+  ];
+}
+
+function normalizeSteps(steps) {
+  if (!Array.isArray(steps) || steps.length === 0) {
+    return createInitialSteps();
+  }
+  return steps.map((s, idx) => ({
+    stepNumber: s.stepNumber || (idx + 1),
+    name: s.name || `ขั้นตอนที่ ${idx + 1}`,
+    status: s.status || 'idle',
+    isFlush: s.isFlush !== undefined ? s.isFlush : (s.name ? (s.name.toLowerCase().includes('flush') || s.name.includes('ล้าง')) : false),
+    startedAt: s.startedAt || null,
+    finishedAt: s.finishedAt || null,
+    targetTank: s.targetTank || '',
+    ...s
+  }));
+}
+
+
     
 
 /**
@@ -3555,6 +3582,7 @@ function CreateBlendingModal({ onClose, onSave, blenders = [], dbConfig = {}, ap
     // Modal สำหรับ Admin ลงทะเบียนประวัติงานผสมย้อนหลัง (Historical Blending Batch & Approved Density)
 
 CreateBlendingModal;
+
 
 
 
