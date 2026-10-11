@@ -7790,7 +7790,13 @@ SapStagingManager;
 
 
 
+
 // Helpers
+
+// Cross-tab / Multi-window Real-time Sync Bus
+const syncBus = typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined'
+  ? new BroadcastChannel('mes_sync_channel')
+  : null;
 
 function App() {
       // 1. ตรวจสอบว่าเปิดระบบใดจาก URL: ?system=blender, filling, lab, admin หรือ portal
