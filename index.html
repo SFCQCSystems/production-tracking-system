@@ -1921,6 +1921,31 @@ const DEFAULT_API_CONFIG = {
       }
     };
 
+const ALL_PLANT_BLENDERS = [
+      { code: 'BLB01', name: 'BLB01', isActive: true },
+      { code: 'BLB02', name: 'BLB02', isActive: true },
+      { code: 'BLB03', name: 'BLB03', isActive: true },
+      { code: 'BLB04', name: 'BLB04', isActive: true },
+      { code: 'BLB05', name: 'BLB05', isActive: true },
+      { code: 'BLB06', name: 'BLB06', isActive: true },
+      { code: 'BLB07', name: 'BLB07', isActive: true },
+      { code: 'BLB08', name: 'BLB08', isActive: true },
+      { code: 'BLB09', name: 'BLB09', isActive: true },
+      { code: 'BLB10', name: 'BLB10', isActive: true },
+      { code: 'BLB11', name: 'BLB11', isActive: true },
+      { code: 'BLB12', name: 'BLB12', isActive: true },
+      { code: 'BLB13', name: 'BLB13', isActive: true },
+      { code: 'BLB14', name: 'BLB14', isActive: true },
+      { code: 'BLB15', name: 'BLB15', isActive: true },
+      { code: 'BLB16', name: 'BLB16', isActive: true },
+      { code: 'BLB18', name: 'BLB18', isActive: true },
+      { code: 'BLB19', name: 'BLB19', isActive: true },
+      { code: 'BLB20', name: 'BLB20', isActive: true },
+      { code: 'BLB21', name: 'BLB21', isActive: true },
+      { code: 'BLB22', name: 'BLB22', isActive: true },
+      { code: 'BLS01', name: 'BLS01', isActive: true }
+    ];
+
 const DEFAULT_ADMIN_CONFIG = {
       blenders: [...ALL_PLANT_BLENDERS],
       fillingLines: [
@@ -1964,34 +1989,10 @@ const DEFAULT_PACKAGING = [];
 const DEFAULT_LAB = [];
 
 
-const ALL_PLANT_BLENDERS = [
-      { code: 'BLB01', name: 'BLB01', isActive: true },
-      { code: 'BLB02', name: 'BLB02', isActive: true },
-      { code: 'BLB03', name: 'BLB03', isActive: true },
-      { code: 'BLB04', name: 'BLB04', isActive: true },
-      { code: 'BLB05', name: 'BLB05', isActive: true },
-      { code: 'BLB06', name: 'BLB06', isActive: true },
-      { code: 'BLB07', name: 'BLB07', isActive: true },
-      { code: 'BLB08', name: 'BLB08', isActive: true },
-      { code: 'BLB09', name: 'BLB09', isActive: true },
-      { code: 'BLB10', name: 'BLB10', isActive: true },
-      { code: 'BLB11', name: 'BLB11', isActive: true },
-      { code: 'BLB12', name: 'BLB12', isActive: true },
-      { code: 'BLB13', name: 'BLB13', isActive: true },
-      { code: 'BLB14', name: 'BLB14', isActive: true },
-      { code: 'BLB15', name: 'BLB15', isActive: true },
-      { code: 'BLB16', name: 'BLB16', isActive: true },
-      { code: 'BLB18', name: 'BLB18', isActive: true },
-      { code: 'BLB19', name: 'BLB19', isActive: true },
-      { code: 'BLB20', name: 'BLB20', isActive: true },
-      { code: 'BLB21', name: 'BLB21', isActive: true },
-      { code: 'BLB22', name: 'BLB22', isActive: true },
-      { code: 'BLS01', name: 'BLS01', isActive: true }
-    ];
-
 
     // --- HELPERS ---
     
+
 
 function extractBlenderCodeFromBatch(batchStr) {
       if (!batchStr) return 'BLB01';
@@ -2289,6 +2290,19 @@ function getSampleInfo(sample, blendingJobsList = [], fillingJobsList = []) {
         origin: origin || (sample.sourceModule === 'BLENDING' ? 'BLB 01' : 'Line 1')
       };
     }
+
+function getDefaultServerUrl() {
+  try {
+    const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_SERVER_URL) : null;
+    if (stored && stored.trim()) return stored.trim();
+    if (typeof window !== 'undefined' && window.location && window.location.protocol && window.location.protocol.startsWith('http')) {
+      return window.location.origin;
+    }
+  } catch (err) {
+    console.warn('getDefaultServerUrl error:', err);
+  }
+  return 'http://localhost:3001';
+}
 
     
 
@@ -6060,6 +6074,7 @@ function ShareDbModal({ dbConfig, onClose, onImportToken }) {
     }
 
 ShareDbModal;
+
 
 
 
