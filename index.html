@@ -16479,12 +16479,81 @@ function App() {
 
                   return (
                     <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-3 sm:p-4 shadow-2xl space-y-4">
+                      {/* Mobile Navigation Header (< lg) - Clean non-sticky responsive picker */}
+                      <div className="lg:hidden w-full bg-slate-950/90 border border-slate-800 rounded-2xl p-3.5 shadow-xl space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+                            <div>
+                              <h3 className="font-bold text-white text-sm leading-tight">ตั้งค่าระบบ</h3>
+                              <p className="text-[10px] text-slate-400 font-medium">System Preferences</p>
+                            </div>
+                          </div>
+                          {activeItem.count !== null && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                              {activeItem.count} รายการ
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Mobile Category Dropdown Picker */}
+                        <div className="relative">
+                          <select
+                            value={adminSettingSubTab}
+                            onChange={(e) => setAdminSettingSubTab(e.target.value)}
+                            aria-label="เลือกหัวข้อตั้งค่า"
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-xs font-semibold text-white focus:outline-none focus:border-blue-500 appearance-none pr-9 cursor-pointer transition-all shadow-inner"
+                          >
+                            {settingsCategories.map((cat, cIdx) => (
+                              <optgroup key={cIdx} label={`── ${cat.categoryTitle} ──`} className="bg-slate-950 text-slate-400 font-bold">
+                                {cat.items.map((item) => (
+                                  <option key={item.id} value={item.id} className="bg-slate-900 text-white font-medium py-1">
+                                    {item.label} {item.count !== null ? `(${item.count})` : ''}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ))}
+                          </select>
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                            <AppIcon name="arrowDown" className="w-3.5 h-3.5" />
+                          </div>
+                        </div>
+
+                        {/* Mobile Horizontal Scrollable Pill Strip */}
+                        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5 pb-1 -mx-1 px-1">
+                          {settingsCategories.flatMap(c => c.items).map((item) => {
+                            const isSelected = adminSettingSubTab === item.id;
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => setAdminSettingSubTab(item.id)}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-all flex items-center gap-1.5 ${
+                                  isSelected
+                                    ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-500/30 scale-[1.02]'
+                                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                                }`}
+                              >
+                                <span>{item.label}</span>
+                                {item.count !== null && (
+                                  <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${
+                                    isSelected ? 'bg-white/20 text-white font-bold' : 'bg-slate-800 text-slate-400'
+                                  }`}>
+                                    {item.count}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
                       {/* Apple-style Split View Layout */}
-                      <div className="flex flex-col lg:flex-row gap-4 items-start">
+                      <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
                         {/* =========================================================================
-                            LEFT SIDEBAR: APPLE macOS SETTINGS SIDEBAR (Navigation & Search)
+                            LEFT SIDEBAR: APPLE macOS SETTINGS SIDEBAR (Desktop Only, lg:sticky)
                             ========================================================================= */}
-                        <div className="w-full lg:w-72 lg:shrink-0 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-2xl p-3.5 shadow-xl space-y-3 sticky top-4">
+                        <div className="hidden lg:block lg:w-72 lg:shrink-0 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-2xl p-3.5 shadow-xl space-y-3 lg:sticky lg:top-4">
                           {/* Sidebar Header */}
                           <div className="px-1 py-1">
                             <h3 className="font-bold text-white text-base leading-tight">ตั้งค่าระบบ</h3>
@@ -16556,7 +16625,7 @@ function App() {
                         {/* =========================================================================
                             RIGHT CONTENT CANVAS: APPLE INSET GROUPED WORKSPACE
                             ========================================================================= */}
-                        <div className="flex-1 w-full space-y-4">
+                        <div className="flex-1 w-full min-w-0 space-y-4">
                           {/* Top Breadcrumb & Action Banner */}
                           <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                             <div>
@@ -16577,25 +16646,13 @@ function App() {
 
                             {/* Contextual Action Button */}
                             <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-                              {adminSettingSubTab === 'audit_logs' && (() => {
-                          const rawLogs = safeStorage.get(STORAGE_AUDIT_LOGS, []);
-                          const logsList = Array.isArray(rawLogs) ? rawLogs : [];
-                          return (
-                            <div className="space-y-4 animate-fade-in">
-                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                                <div>
-                                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                                    <AppIcon name="shield" className="w-4 h-4 text-emerald-600" />
-                                    <span>บันทึกความปลอดภัยของระบบ (Security Audit Trail)</span>
-                                  </h4>
-                                  <p className="text-xs text-slate-500 mt-0.5">
-                                    บันทึกเหตุการณ์ความปลอดภัย การเข้าสู่ระบบ การป้องกัน Brute-Force และการปรับเปลี่ยนสิทธิ์ผู้ใช้งาน
-                                  </p>
-                                </div>
+                              {adminSettingSubTab === 'audit_logs' && (
                                 <div className="flex items-center gap-2">
                                   <button
                                     type="button"
                                     onClick={() => {
+                                      const rawLogs = safeStorage.get(STORAGE_AUDIT_LOGS, []);
+                                      const logsList = Array.isArray(rawLogs) ? rawLogs : [];
                                       if (logsList.length === 0) { alert('ยังไม่มีข้อมูลบันทึก'); return; }
                                       let csv = 'Timestamp,Event,Actor,Details\n';
                                       logsList.forEach(l => {
@@ -16608,7 +16665,7 @@ function App() {
                                       a.download = `PTS_Security_Audit_${new Date().toISOString().slice(0,10)}.csv`;
                                       a.click();
                                     }}
-                                    className="btn-touch px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs border border-slate-300 transition-all flex items-center gap-1.5"
+                                    className="btn-touch px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition-all flex items-center gap-1.5"
                                   >
                                     <AppIcon name="clipboard" className="w-3.5 h-3.5" />
                                     <span>ส่งออก CSV</span>
@@ -16621,69 +16678,13 @@ function App() {
                                         alert('ล้างบันทึกเรียบร้อย');
                                       }
                                     }}
-                                    className="btn-touch px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 transition-all flex items-center gap-1.5"
+                                    className="btn-touch px-3 py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 text-rose-300 font-bold text-xs border border-rose-800/80 transition-all flex items-center gap-1.5"
                                   >
                                     <AppIcon name="trash" className="w-3.5 h-3.5" />
                                     <span>ล้างประวัติ</span>
                                   </button>
                                 </div>
-                              </div>
-
-                              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                                <div className="overflow-x-auto max-h-[600px]">
-                                  <table className="w-full text-left text-xs">
-                                    <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10 font-bold text-slate-700">
-                                      <tr>
-                                        <th className="px-3 py-2.5">เวลา (Timestamp)</th>
-                                        <th className="px-3 py-2.5">เหตุการณ์ (Event)</th>
-                                        <th className="px-3 py-2.5">ผู้ใช้ (Actor)</th>
-                                        <th className="px-3 py-2.5">รายละเอียด (Details)</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                      {logsList.length === 0 ? (
-                                        <tr>
-                                          <td colSpan="4" className="p-8 text-center text-slate-400">
-                                            ยังไม่มีประวัติเหตุการณ์ความปลอดภัยที่ถูกบันทึก
-                                          </td>
-                                        </tr>
-                                      ) : (
-                                        logsList.map((log) => {
-                                          const isSuccess = log.type === 'LOGIN_SUCCESS';
-                                          const isWarning = log.type.includes('LOCKED') || log.type.includes('FAILED') || log.type.includes('DENIED');
-                                          const badgeCls = isSuccess
-                                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                            : isWarning
-                                            ? 'bg-rose-50 text-rose-800 border-rose-300 animate-pulse'
-                                            : 'bg-blue-50 text-blue-800 border-blue-300';
-
-                                          return (
-                                            <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
-                                              <td className="px-3 py-2.5 font-mono text-slate-600 whitespace-nowrap">
-                                                {new Date(log.timestamp).toLocaleString('th-TH')}
-                                              </td>
-                                              <td className="px-3 py-2.5 whitespace-nowrap">
-                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border font-mono ${badgeCls}`}>
-                                                  {log.type}
-                                                </span>
-                                              </td>
-                                              <td className="px-3 py-2.5 font-mono font-bold text-slate-900 whitespace-nowrap">
-                                                {log.actor}
-                                              </td>
-                                              <td className="px-3 py-2.5 text-slate-600 font-sans leading-relaxed">
-                                                {log.details}
-                                              </td>
-                                            </tr>
-                                          );
-                                        })
-                                      )}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })()}
+                              )}
 
                         {adminSettingSubTab === 'users' && (
                                 <button
@@ -18633,6 +18634,79 @@ function App() {
                           </div>
                         </div>
                       )}
+
+                      {/* =========================================================================
+                          TAB: บันทึกความปลอดภัยของระบบ (Audit Logs)
+                          ========================================================================= */}
+                      {adminSettingSubTab === 'audit_logs' && (() => {
+                        const rawLogs = safeStorage.get(STORAGE_AUDIT_LOGS, []);
+                        const logsList = Array.isArray(rawLogs) ? rawLogs : [];
+                        return (
+                          <div className="space-y-4 animate-fade-in">
+                            <div className="bg-slate-950/80 rounded-2xl border border-slate-800 shadow-sm overflow-hidden">
+                              <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+                                <div className="flex items-center gap-2">
+                                  <AppIcon name="shield" className="w-4 h-4 text-emerald-400" />
+                                  <span className="font-bold text-white text-sm">บันทึกความปลอดภัยของระบบ (Security Audit Trail)</span>
+                                </div>
+                                <span className="text-xs text-slate-400 font-mono font-medium">
+                                  ทั้งหมด {logsList.length} รายการ
+                                </span>
+                              </div>
+                              <div className="overflow-x-auto max-h-[600px]">
+                                <table className="w-full text-left text-xs">
+                                  <thead className="bg-slate-900 border-b border-slate-800 sticky top-0 z-10 font-bold text-slate-300">
+                                    <tr>
+                                      <th className="px-3 py-2.5">เวลา (Timestamp)</th>
+                                      <th className="px-3 py-2.5">เหตุการณ์ (Event)</th>
+                                      <th className="px-3 py-2.5">ผู้ใช้ (Actor)</th>
+                                      <th className="px-3 py-2.5">รายละเอียด (Details)</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-800/80 text-slate-300">
+                                    {logsList.length === 0 ? (
+                                      <tr>
+                                        <td colSpan="4" className="p-8 text-center text-slate-500">
+                                          ยังไม่มีประวัติเหตุการณ์ความปลอดภัยที่ถูกบันทึก
+                                        </td>
+                                      </tr>
+                                    ) : (
+                                      logsList.map((log) => {
+                                        const isSuccess = log.type === 'LOGIN_SUCCESS';
+                                        const isWarning = log.type.includes('LOCKED') || log.type.includes('FAILED') || log.type.includes('DENIED');
+                                        const badgeCls = isSuccess
+                                          ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
+                                          : isWarning
+                                          ? 'bg-rose-950/80 text-rose-300 border-rose-800 animate-pulse'
+                                          : 'bg-blue-950/80 text-blue-300 border-blue-800';
+
+                                        return (
+                                          <tr key={log.id} className="hover:bg-slate-900/60 transition-colors">
+                                            <td className="px-3 py-2.5 font-mono text-slate-400 whitespace-nowrap">
+                                              {new Date(log.timestamp).toLocaleString('th-TH')}
+                                            </td>
+                                            <td className="px-3 py-2.5 whitespace-nowrap">
+                                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border font-mono ${badgeCls}`}>
+                                                {log.type}
+                                              </span>
+                                            </td>
+                                            <td className="px-3 py-2.5 font-mono font-bold text-white whitespace-nowrap">
+                                              {log.actor}
+                                            </td>
+                                            <td className="px-3 py-2.5 text-slate-300 font-sans leading-relaxed">
+                                              {log.details}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* =========================================================================
                           TAB 5: ข้อมูลระบบ & การคืนค่าเริ่มต้น (System Maintenance & Factory Reset)
