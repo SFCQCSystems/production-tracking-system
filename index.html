@@ -10503,11 +10503,18 @@ function App() {
           const targetJob = blendingJobs.find((j) => j.id === jobId);
           if (!targetJob) return;
           if (targetJob.jobStatus !== 'ยังไม่เริ่ม') {
-            alert('สามารถยกเลิกได้เฉพาะงานที่สถานะเป็น "ยังไม่เริ่ม" เท่านั้น\nหากเริ่มผลิตไปแล้ว ต้องดำเนินการให้เสร็จสิ้นหรือให้ Admin จัดการ');
-            return;
-          }
-          if (!confirm(`ยืนยันที่จะยกเลิกงาน ${targetJob.productionNo} (${targetJob.batchNo}) บนถัง ${targetJob.blenderCode} หรือไม่?\n(ข้อมูลงานนี้จะถูกลบเพื่อคืนสถานะถังให้พร้อมสร้างงานใหม่)`)) {
-            return;
+            const isPrivileged = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPERVISOR' || currentUser?.role === 'PLANT_MANAGER';
+            if (!isPrivileged) {
+              alert('สามารถยกเลิกได้เฉพาะงานที่สถานะเป็น "ยังไม่เริ่ม" เท่านั้น\nหากเริ่มผลิตไปแล้ว กรุณาติดต่อหัวหน้างาน (Supervisor) หรือ Admin เพื่อยกเลิก');
+              return;
+            }
+            if (!confirm(`คำเตือน:\nงาน ${targetJob.productionNo} (${targetJob.batchNo}) บนถัง ${targetJob.blenderCode} อยู่ในสถานะ "${targetJob.jobStatus}"\n\nคุณในฐานะ ${currentUser?.fullName || 'ผู้ดูแลระบบ'} ยืนยันที่จะบังคับยกเลิกงานนี้หรือไม่?\n(ข้อมูลงานนี้จะถูกลบเพื่อคืนสถานะถังให้พร้อมสร้างงานใหม่)`)) {
+              return;
+            }
+          } else {
+            if (!confirm(`ยืนยันที่จะยกเลิกงาน ${targetJob.productionNo} (${targetJob.batchNo}) บนถัง ${targetJob.blenderCode} หรือไม่?\n\n(ข้อมูลงานนี้จะถูกลบเพื่อคืนสถานะถังให้ว่างและพร้อมสร้างงานใหม่)`)) {
+              return;
+            }
           }
           const filtered = blendingJobs.filter((j) => j.id !== jobId);
           saveBlending(filtered);
@@ -10519,11 +10526,18 @@ function App() {
           const targetJob = fillingJobs.find((j) => j.id === jobId);
           if (!targetJob) return;
           if (targetJob.jobStatus !== 'ยังไม่เริ่ม') {
-            alert('สามารถยกเลิกได้เฉพาะงานที่สถานะเป็น "ยังไม่เริ่ม" เท่านั้น\nหากเริ่มเดินไลน์ไปแล้ว ต้องดำเนินการให้เสร็จสิ้นหรือให้ Admin จัดการ');
-            return;
-          }
-          if (!confirm(`ยืนยันที่จะยกเลิกงาน ${targetJob.productionNo} บนไลน์ ${targetJob.lineCode} หรือไม่?\n(คำขอเบิกภาชนะและข้อมูลงานจะถูกลบเพื่อคืนสถานะไลน์)`)) {
-            return;
+            const isPrivileged = currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPERVISOR' || currentUser?.role === 'PLANT_MANAGER';
+            if (!isPrivileged) {
+              alert('สามารถยกเลิกได้เฉพาะงานที่สถานะเป็น "ยังไม่เริ่ม" เท่านั้น\nหากเริ่มเดินไลน์ไปแล้ว กรุณาติดต่อหัวหน้างาน (Supervisor) หรือ Admin เพื่อยกเลิก');
+              return;
+            }
+            if (!confirm(`คำเตือน:\nงาน ${targetJob.productionNo} บนไลน์ ${targetJob.lineCode} อยู่ในสถานะ "${targetJob.jobStatus}"\n\nคุณในฐานะ ${currentUser?.fullName || 'ผู้ดูแลระบบ'} ยืนยันที่จะบังคับยกเลิกงานนี้หรือไม่?\n(คำขอเบิกภาชนะและข้อมูลงานจะถูกลบเพื่อคืนสถานะไลน์)`)) {
+              return;
+            }
+          } else {
+            if (!confirm(`ยืนยันที่จะยกเลิกงาน ${targetJob.productionNo} บนไลน์ ${targetJob.lineCode} หรือไม่?\n\n(คำขอเบิกภาชนะและข้อมูลงานจะถูกลบเพื่อคืนสถานะไลน์ให้ว่างและพร้อมสร้างงานใหม่)`)) {
+              return;
+            }
           }
           const filtered = fillingJobs.filter((j) => j.id !== jobId);
           saveFilling(filtered);
@@ -15043,19 +15057,34 @@ function App() {
                                   </td>
                                   <td className="px-3 py-3 text-center">
                                     {j.jobStatus === 'ยังไม่เริ่ม' ? (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          const nowIso = new Date().toISOString();
-                                          saveBlending(blendingJobs.map((item) => item.id === j.id ? { ...item, jobStatus: 'กำลังดำเนินการ', startedAt: nowIso } : item));
-                                          setSelectedBlenderId(j.id);
-                                          setStationTab('station');
-                                        }}
-                                        className="btn-touch px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs shadow flex items-center gap-1 mx-auto"
-                                        title="กดเพื่อเริ่มงานและเข้าสู่หน้าปฏิบัติงานทันที"
-                                      >
-                                        <span className="flex items-center gap-1.5"><AppIcon name="play" className="w-3.5 h-3.5 inline-block" /><span>เริ่มงาน</span></span>
-                                      </button>
+                                      <div className="flex items-center justify-center gap-1.5">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const nowIso = new Date().toISOString();
+                                            saveBlending(blendingJobs.map((item) => item.id === j.id ? { ...item, jobStatus: 'กำลังดำเนินการ', startedAt: nowIso } : item));
+                                            setSelectedBlenderId(j.id);
+                                            setStationTab('station');
+                                          }}
+                                          className="btn-touch px-2.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs shadow flex items-center gap-1"
+                                          title="กดเพื่อเริ่มงานและเข้าสู่หน้าปฏิบัติงานทันที"
+                                        >
+                                          <AppIcon name="play" className="w-3.5 h-3.5 inline-block" />
+                                          <span>เริ่มงาน</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleCancelJob('BLENDING', j.id);
+                                          }}
+                                          className="btn-touch px-2 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 hover:border-rose-500/70 font-bold text-xs shadow flex items-center gap-1 transition-all"
+                                          title="ยกเลิกงานนี้เพื่อคืนสถานะถังให้ว่าง"
+                                        >
+                                          <AppIcon name="trash" className="w-3.5 h-3.5 inline-block" />
+                                          <span>ยกเลิก</span>
+                                        </button>
+                                      </div>
                                     ) : (
                                       <span className="text-xs text-amber-400 font-bold flex items-center justify-center gap-1 group-hover:underline">
                                         เข้าทำงาน →
@@ -15987,19 +16016,34 @@ function App() {
                                 </td>
                                 <td className="px-3 py-3 text-center">
                                   {f.jobStatus === 'ยังไม่เริ่ม' ? (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        const nowIso = new Date().toISOString();
-                                        saveFilling(fillingJobs.map((item) => item.id === f.id ? { ...item, jobStatus: 'กำลังดำเนินการ', startedAt: nowIso } : item));
-                                        setSelectedFillingId(f.id);
-                                        setStationTab('station');
-                                      }}
-                                      className="btn-touch px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs shadow-sm flex items-center gap-1 mx-auto"
-                                      title="กดเพื่อเริ่มงานและเข้าสู่หน้าปฏิบัติงานทันที"
-                                    >
-                                      <span className="flex items-center gap-1.5"><AppIcon name="play" className="w-3.5 h-3.5 inline-block" /><span>เริ่มงาน</span></span>
-                                    </button>
+                                    <div className="flex items-center justify-center gap-1.5">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const nowIso = new Date().toISOString();
+                                          saveFilling(fillingJobs.map((item) => item.id === f.id ? { ...item, jobStatus: 'กำลังดำเนินการ', startedAt: nowIso } : item));
+                                          setSelectedFillingId(f.id);
+                                          setStationTab('station');
+                                        }}
+                                        className="btn-touch px-2.5 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs shadow-sm flex items-center gap-1"
+                                        title="กดเพื่อเริ่มงานและเข้าสู่หน้าปฏิบัติงานทันที"
+                                      >
+                                        <AppIcon name="play" className="w-3.5 h-3.5 inline-block" />
+                                        <span>เริ่มงาน</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleCancelJob('FILLING', f.id);
+                                        }}
+                                        className="btn-touch px-2 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 hover:border-rose-400 font-bold text-xs shadow-xs flex items-center gap-1 transition-all"
+                                        title="ยกเลิกงานนี้เพื่อคืนสถานะไลน์ให้ว่าง"
+                                      >
+                                        <AppIcon name="trash" className="w-3.5 h-3.5 inline-block" />
+                                        <span>ยกเลิก</span>
+                                      </button>
+                                    </div>
                                   ) : (
                                     <span className="text-xs text-teal-700 font-bold flex items-center justify-center gap-1 group-hover:underline">
                                       เข้าทำงาน →
