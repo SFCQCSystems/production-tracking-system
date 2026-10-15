@@ -6755,6 +6755,7 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
       const [currentPage, setCurrentPage] = useState(1);
       const itemsPerPage = 25;
       const fileInputRef = React.useRef(null);
+      const [sqlDialect, setSqlDialect] = useState('mssql'); // 'mssql' | 'simple' | 'hana'
 
       // Stats
       const totalCount = sapStagingOrders.length;
@@ -7028,7 +7029,7 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
                   if (colMap.orderType === undefined || key === 'productionordertype') {
                     colMap.orderType = idx;
                   }
-                } else if (key === 'productionname' || key === 'productname' || key === 'itemname' || key === 'description' || key === 'maktx') {
+                } else if (key === 'productionname' || key === 'productname' || key === 'itemname' || key === 'description' || key === 'maktx' || key === 'prodname') {
                   colMap.productionName = idx;
                 } else if (key === 'itemcode' || key === 'materialcode' || key === 'matnr' || key === 'fgcode') {
                   colMap.itemCode = idx;
@@ -7042,9 +7043,9 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
                   colMap.status = idx;
                 } else if (key === 'qtylitre' || key === 'qtyliter') {
                   colMap.qtyLitre = idx;
-                } else if (key === 'qty' || key === 'quantity' || key === 'menge') {
+                } else if (key === 'qty' || key === 'quantity' || key === 'menge' || key === 'plannedqty') {
                   colMap.qty = idx;
-                } else if (key === 'unit' || key === 'uom') {
+                } else if (key === 'unit' || key === 'uom' || key === 'invntryuom') {
                   colMap.unit = idx;
                 } else if (key === 'producttank' || key === 'tank') {
                   colMap.productTank = idx;
@@ -7112,9 +7113,20 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
               const status = (normStatus.toLowerCase() === 'released') ? 'Released' : (normStatus || 'Planned');
 
               const rawType = getVal(colMap.orderType);
+              const curItemCode = getVal(colMap.itemCode);
               let orderType = 'Blending';
-              if (rawType.toLowerCase().includes('pack')) orderType = 'Packing';
-              else if (rawType.toLowerCase().includes('blend')) orderType = 'Blending';
+              if (rawType.toLowerCase().includes('pack') || rawType.toLowerCase().includes('fill')) {
+                orderType = 'Packing';
+              } else if (rawType.toLowerCase().includes('blend')) {
+                orderType = 'Blending';
+              } else if (curItemCode) {
+                // ถ้าค่า Type เป็น Standard/S ทั่วไป ให้ดูจากรหัสสินค้า (I- หรือ B- คือ Blending นอกนั้นคือ Packing)
+                if (curItemCode.toUpperCase().startsWith('I-') || curItemCode.toUpperCase().startsWith('B-')) {
+                  orderType = 'Blending';
+                } else {
+                  orderType = 'Packing';
+                }
+              }
 
               const rawBatch = getVal(colMap.batchNo);
               const remark = getVal(colMap.remark);
@@ -7390,7 +7402,89 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
 
             {/* SQL Template Helper Accordion for SAP B1 */}
             {(() => {
-              const sapSqlCode = `-- ==================================================================================\n-- คำสั่ง SQL มาตรฐานสำหรับ SAP Business One (OWOR + WOR1)\n-- สำหรับสร้าง User Query เพื่อ Export แผนคำสั่งผลิตเข้าสู่ระบบ PTS\n-- รองรับทั้งงาน Blending (ดึง FG เป็น Bulk) และงาน Filling (ดึง SFG/Intermediate Bulk)\n-- ==================================================================================\nWITH MainBulkOil AS (\n    SELECT \n        "DocEntry",\n        "ItemCode",\n        "ItemName",\n        "PlannedQty",\n        ROW_NUMBER() OVER (\n            PARTITION BY "DocEntry" \n            ORDER BY CASE WHEN "ItemCode" LIKE 'I-%' THEN 1 ELSE 2 END, "PlannedQty" DESC\n        ) AS "RankNo"\n    FROM WOR1\n    WHERE "ItemCode" LIKE 'I-%' OR "ItemCode" LIKE 'B-%'\n)\nSELECT \n    ROW_NUMBER() OVER (ORDER BY T0."DocNum" DESC) AS "#",\n    CASE T0."Type" \n        WHEN 'S' THEN 'Standard' \n        WHEN 'P' THEN 'Special' \n        WHEN 'D' THEN 'Disassembly' \n        ELSE T0."Type" \n    END                                           AS "Production Order Type",\n    CASE \n        WHEN T0."ItemCode" LIKE 'I-%' THEN 'Blending'\n        ELSE 'Filling'\n    END                                           AS "Production Type",\n    T0."DocNum"                                   AS "Production No.",\n    T0."ItemCode"                                 AS "Item Code",\n    T0."ProdName"                                 AS "Product Description",\n    COALESCE(\n        T1."ItemCode", \n        CASE WHEN T0."ItemCode" LIKE 'I-%' THEN T0."ItemCode" ELSE '' END\n    )                                             AS "Bulk Oil Code",\n    COALESCE(\n        T1."ItemName", \n        CASE WHEN T0."ItemCode" LIKE 'I-%' THEN T0."ProdName" ELSE '' END\n    )                                             AS "Bulk Oil Name",\n    T0."PlannedQty"                               AS "Planned Qty",\n    T0."Uom"                                      AS "UoM",\n    T0."StartDate"                                AS "Start Date",\n    T0."DueDate"                                  AS "Due Date",\n    T0."Warehouse"                                AS "Warehouse",\n    T0."Comments"                                 AS "Remarks"\nFROM OWOR T0\nLEFT JOIN MainBulkOil T1 \n    ON T0."DocEntry" = T1."DocEntry" \n    AND T1."RankNo" = 1\nWHERE T0."Status" IN ('P', 'R') -- Planned หรือ Released\nORDER BY T0."DocNum" DESC;`;
+              const sqlTemplates = {
+                mssql: `SELECT 
+    T0.DocNum AS 'Production No.',
+    CASE T0.Type 
+        WHEN 'S' THEN 'Standard' 
+        WHEN 'P' THEN 'Special' 
+        WHEN 'D' THEN 'Disassembly' 
+        ELSE T0.Type 
+    END AS 'Production Order Type',
+    CASE 
+        WHEN T0.ItemCode LIKE 'I-%' THEN 'Blending' 
+        ELSE 'Filling' 
+    END AS 'Production Type',
+    T0.ItemCode AS 'Item Code',
+    T0.ProdName AS 'Product Description',
+    CASE 
+        WHEN T0.ItemCode LIKE 'I-%' THEN T0.ItemCode 
+        ELSE '' 
+    END AS 'Bulk Oil Code',
+    CASE 
+        WHEN T0.ItemCode LIKE 'I-%' THEN T0.ProdName 
+        ELSE '' 
+    END AS 'Bulk Oil Name',
+    T0.PlannedQty AS 'Planned Qty',
+    ISNULL(T1.InvntryUom, '') AS 'UoM',
+    T0.StartDate AS 'Start Date',
+    T0.DueDate AS 'Due Date',
+    T0.Warehouse AS 'Warehouse',
+    T0.Comments AS 'Remarks'
+FROM OWOR T0
+LEFT JOIN OITM T1 ON T0.ItemCode = T1.ItemCode
+WHERE T0.Status IN ('P', 'R')
+ORDER BY T0.DocNum DESC`,
+                simple: `SELECT 
+    T0.DocNum,
+    T0.Type,
+    T0.ItemCode,
+    T0.ProdName,
+    T0.PlannedQty,
+    T1.InvntryUom,
+    T0.StartDate,
+    T0.DueDate,
+    T0.Warehouse,
+    T0.Comments
+FROM OWOR T0
+LEFT JOIN OITM T1 ON T0.ItemCode = T1.ItemCode
+WHERE T0.Status IN ('P', 'R')
+ORDER BY T0.DocNum DESC`,
+                hana: `SELECT 
+    T0."DocNum" AS "Production No.",
+    CASE T0."Type" 
+        WHEN 'S' THEN 'Standard' 
+        WHEN 'P' THEN 'Special' 
+        WHEN 'D' THEN 'Disassembly' 
+        ELSE T0."Type" 
+    END AS "Production Order Type",
+    CASE 
+        WHEN T0."ItemCode" LIKE 'I-%' THEN 'Blending' 
+        ELSE 'Filling' 
+    END AS "Production Type",
+    T0."ItemCode" AS "Item Code",
+    T0."ProdName" AS "Product Description",
+    CASE 
+        WHEN T0."ItemCode" LIKE 'I-%' THEN T0."ItemCode" 
+        ELSE '' 
+    END AS "Bulk Oil Code",
+    CASE 
+        WHEN T0."ItemCode" LIKE 'I-%' THEN T0."ProdName" 
+        ELSE '' 
+    END AS "Bulk Oil Name",
+    T0."PlannedQty" AS "Planned Qty",
+    IFNULL(T1."InvntryUom", '') AS "UoM",
+    T0."StartDate" AS "Start Date",
+    T0."DueDate" AS "Due Date",
+    T0."Warehouse" AS "Warehouse",
+    T0."Comments" AS "Remarks"
+FROM "OWOR" T0
+LEFT JOIN "OITM" T1 ON T0."ItemCode" = T1."ItemCode"
+WHERE T0."Status" IN ('P', 'R')
+ORDER BY T0."DocNum" DESC`
+              };
+
+              const currentSql = sqlTemplates[sqlDialect] || sqlTemplates.mssql;
 
               return (
                 <div className="bg-slate-900 border border-slate-700/80 rounded-2xl overflow-hidden shadow-lg text-slate-100">
@@ -7403,11 +7497,11 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
                         <div className="flex items-center gap-2">
                           <h4 className="font-bold text-sm text-amber-400">คำสั่ง SQL Query สำหรับดึงข้อมูลจาก SAP Business One</h4>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-950 text-emerald-400 border border-emerald-700">
-                            OWOR + WOR1 (100% Match)
+                            100% Query Generator Ready
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-400 mt-0.5">
-                          คัดลอกคำสั่งนี้ไปรันใน SAP Query Generator เพื่อ Export ไฟล์ Excel ที่มีคอลัมน์และ Bulk Oil Code ถูกต้องตามระบบทันที
+                          คัดลอกคำสั่งนี้ไปรันใน SAP Query Generator (Ctrl+Q) เพื่อ Export ไฟล์ Excel นำเข้า PTS ได้ทันที
                         </p>
                       </div>
                     </div>
@@ -7417,27 +7511,58 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
                         type="button"
                         onClick={() => {
                           if (navigator.clipboard && navigator.clipboard.writeText) {
-                            navigator.clipboard.writeText(sapSqlCode);
-                            alert('คัดลอกคำสั่ง SQL สำหรับ SAP Business One เรียบร้อยแล้ว\nนำไปวางใน SAP Query Generator เพื่อรันและ Export Excel ได้ทันที');
+                            navigator.clipboard.writeText(currentSql);
+                            alert('คัดลอกคำสั่ง SQL สำหรับ SAP เรียบร้อยแล้ว\nนำไปวางใน SAP Query Generator เพื่อรันและ Export Excel ได้ทันที');
                           } else {
                             const textArea = document.createElement('textarea');
-                            textArea.value = sapSqlCode;
+                            textArea.value = currentSql;
                             document.body.appendChild(textArea);
                             textArea.select();
                             document.execCommand('copy');
                             document.body.removeChild(textArea);
-                            alert('คัดลอกคำสั่ง SQL สำหรับ SAP Business One เรียบร้อยแล้ว');
+                            alert('คัดลอกคำสั่ง SQL สำหรับ SAP เรียบร้อยแล้ว');
                           }
                         }}
                         className="btn-touch px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md transition-all active:scale-95"
                       >
+                        <AppIcon name="clipboard" className="w-3.5 h-3.5 inline-block" />
                         <span>คัดลอกโค้ด SQL</span>
                       </button>
                     </div>
                   </div>
 
-                  {/* Instructions & Syntax box */}
+                  {/* Dialect Tabs & Instructions */}
                   <div className="p-4 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                      <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => setSqlDialect('mssql')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${sqlDialect === 'mssql' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          MS SQL Server (แนะนำ)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSqlDialect('simple')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${sqlDialect === 'simple' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          แบบพื้นฐาน (Simple - ผ่าน 100%)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSqlDialect('hana')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${sqlDialect === 'hana' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          SAP HANA DB
+                        </button>
+                      </div>
+
+                      <span className="text-[11px] text-slate-400 italic">
+                        * สำหรับ SAP ECC / S4HANA แนะนำให้ Export ผ่าน T-Code <strong className="text-amber-300">COOIS</strong>
+                      </span>
+                    </div>
+
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                       <div className="bg-slate-800/60 p-2.5 rounded-xl border border-slate-700/60">
                         <span className="text-amber-400 font-bold block mb-0.5">1. เปิด Query Generator</span>
@@ -7455,7 +7580,7 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
 
                     <div className="relative">
                       <pre className="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 font-mono text-[11px] text-amber-200/90 overflow-x-auto max-h-56 leading-relaxed select-all">
-                        {sapSqlCode}
+                        {currentSql}
                       </pre>
                     </div>
                   </div>
@@ -8339,10 +8464,6 @@ function App() {
 
         return () => {
           clearInterval(timer);
-          clearTimeout(inactivityTimeoutId);
-          window.removeEventListener('mousemove', handleUserActivity);
-          window.removeEventListener('keydown', handleUserActivity);
-          window.removeEventListener('touchstart', handleUserActivity);
         };
       }, [currentSystem, labSoundEnabled, unreceivedAlertSamples.length]);
 
@@ -9541,6 +9662,10 @@ function App() {
         return () => {
           clearInterval(timer);
           clearInterval(pollTimer);
+          clearTimeout(inactivityTimeoutId);
+          window.removeEventListener('mousemove', handleUserActivity);
+          window.removeEventListener('keydown', handleUserActivity);
+          window.removeEventListener('touchstart', handleUserActivity);
           window.removeEventListener('storage', handleStorageEvent);
         };
       }, [serverUrl, serverRevision, pullFromServer, reloadSharedDatabase]);
