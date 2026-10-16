@@ -6774,10 +6774,12 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
             const matchProd = String(o.productionNo || '').toLowerCase().includes(q);
             const matchName = String(o.productionName || '').toLowerCase().includes(q);
             const matchCode = String(o.itemCode || '').toLowerCase().includes(q);
+            const matchBulkCode = String(o.bulkOilCode || '').toLowerCase().includes(q);
+            const matchBulkName = String(o.bulkOilName || '').toLowerCase().includes(q);
             const matchBatch = String(o.batchNo || '').toLowerCase().includes(q);
             const matchTank = String(o.productTank || '').toLowerCase().includes(q);
             const matchOp = String(o.operation1 || '').toLowerCase().includes(q);
-            if (!matchProd && !matchName && !matchCode && !matchBatch && !matchTank && !matchOp) return false;
+            if (!matchProd && !matchName && !matchCode && !matchBulkCode && !matchBulkName && !matchBatch && !matchTank && !matchOp) return false;
           }
           return true;
         });
@@ -7029,10 +7031,32 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
                   if (colMap.orderType === undefined || key === 'productionordertype') {
                     colMap.orderType = idx;
                   }
-                } else if (key === 'productionname' || key === 'productname' || key === 'itemname' || key === 'description' || key === 'maktx' || key === 'prodname') {
+                } else if (
+                  key === 'productionname' ||
+                  key === 'productname' ||
+                  key === 'itemname' ||
+                  key === 'description' ||
+                  key === 'productdescription' ||
+                  key === 'itemdescription' ||
+                  key === 'proddescription' ||
+                  key === 'proddesc' ||
+                  key === 'prodname' ||
+                  key === 'maktx' ||
+                  key.includes('productdesc') ||
+                  key.includes('itemdesc') ||
+                  (key.includes('product') && key.includes('desc')) ||
+                  (key.includes('item') && key.includes('desc')) ||
+                  (key.includes('product') && key.includes('name'))
+                ) {
                   colMap.productionName = idx;
                 } else if (key === 'itemcode' || key === 'materialcode' || key === 'matnr' || key === 'fgcode') {
                   colMap.itemCode = idx;
+                } else if (key === 'externelcode' || key === 'externalcode' || key.includes('externel') || key.includes('external')) {
+                  colMap.externalCode = idx;
+                } else if (key === 'productgroup' || key.includes('productgroup') || key.includes('group')) {
+                  colMap.productGroup = idx;
+                } else if (key === 'warehouse' || key === 'whs') {
+                  colMap.warehouse = idx;
                 } else if (key === 'bulkoilcode' || key === 'component' || key === 'componentcode' || key === 'sfgcode' || key === 'rawmaterialcode' || key.includes('bulkoilcode')) {
                   colMap.bulkOilCode = idx;
                 } else if (key === 'bulkoilname' || key === 'componentdescription' || key === 'componentname' || key === 'sfgname' || key.includes('bulkoilname')) {
@@ -7047,8 +7071,14 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
                   colMap.qty = idx;
                 } else if (key === 'unit' || key === 'uom' || key === 'invntryuom') {
                   colMap.unit = idx;
+                } else if (key === 'factortolitre' || key === 'factor') {
+                  colMap.factorToLitre = idx;
                 } else if (key === 'producttank' || key === 'tank') {
                   colMap.productTank = idx;
+                } else if (key === 'chekendprod' || key.includes('chekend')) {
+                  colMap.chekEndProd = idx;
+                } else if (key === 'linkso' || key === 'originnum') {
+                  colMap.linkSO = idx;
                 } else if (key === 'operation1' || key === 'workcenter' || key === 'blender' || key === 'line') {
                   colMap.operation1 = idx;
                 } else if (key === 'operation2') {
@@ -7063,6 +7093,8 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
                   colMap.dueDate = idx;
                 } else if (key === 'orderdate') {
                   colMap.orderDate = idx;
+                } else if (key === 'closingdate' || key === 'closedate') {
+                  colMap.closingDate = idx;
                 } else if (key === 'createby' || key === 'createdby') {
                   colMap.createBy = idx;
                 }
@@ -7160,25 +7192,52 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
                 if (blenderOrLine.toUpperCase().startsWith('ATA')) blenderOrLine = '';
               }
 
+              const rawQty = parseFloat(getVal(colMap.qty)) || 0;
+              const rawUnit = getVal(colMap.unit) || 'Litre';
+              let factorVal = parseFloat(getVal(colMap.factorToLitre)) || 0;
+              if (!factorVal || factorVal === 1) {
+                const boxMatch = rawUnit.match(/^Box\s*(\d+)\s*\/\s*([0-9.+LlkKgG\s]+)$/i);
+                if (boxMatch) {
+                  const count = parseFloat(boxMatch[1]) || 1;
+                  const parts = boxMatch[2].split('+').map(p => parseFloat(p.replace(/[^\d.]/g, '')) || 0);
+                  const sumVol = parts.reduce((a, b) => a + b, 0);
+                  if (sumVol > 0) factorVal = Number((count * sumVol).toFixed(4));
+                } else {
+                  const containerMatch = rawUnit.match(/^(?:Pail|Drum|Gallon|Bulk)\s*(\d+(?:\.\d+)?)\s*(?:L|K|KG)?$/i);
+                  if (containerMatch) factorVal = parseFloat(containerMatch[1]) || 1;
+                }
+              }
+              if (!factorVal) factorVal = 1;
+              const rawQtyLitre = parseFloat(getVal(colMap.qtyLitre)) || 0;
+              const finalQtyLitre = (rawQtyLitre && rawQtyLitre !== rawQty) ? rawQtyLitre : Number((rawQty * factorVal).toFixed(4));
+
               parsed.push({
                 productionNo: prodNo,
                 orderType,
                 itemCode: getVal(colMap.itemCode),
+                externalCode: getVal(colMap.externalCode),
                 productionName: getVal(colMap.productionName),
+                productGroup: getVal(colMap.productGroup),
+                warehouse: getVal(colMap.warehouse),
                 bulkOilCode: getVal(colMap.bulkOilCode),
                 bulkOilName: getVal(colMap.bulkOilName),
                 batchNo: finalBatch,
                 status: status,
-                qty: parseFloat(getVal(colMap.qty)) || 0,
-                qtyLitre: parseFloat(getVal(colMap.qtyLitre)) || parseFloat(getVal(colMap.qty)) || 0,
-                unit: getVal(colMap.unit) || 'Litre',
+                qty: rawQty,
+                qtyLitre: finalQtyLitre,
+                unit: rawUnit,
+                factorToLitre: factorVal,
+                orderDate: getVal(colMap.orderDate),
+                startDate: getVal(colMap.startDate),
+                dueDate: getVal(colMap.dueDate),
+                closingDate: getVal(colMap.closingDate),
                 productTank: getVal(colMap.productTank),
+                chekEndProd: getVal(colMap.chekEndProd),
+                linkSO: getVal(colMap.linkSO),
                 operation1: blenderOrLine,
                 operation2: op2,
                 operation3: op3,
                 remark: remark,
-                startDate: getVal(colMap.startDate),
-                dueDate: getVal(colMap.dueDate),
                 createBy: getVal(colMap.createBy)
               });
             }
@@ -7404,82 +7463,141 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
             {(() => {
               const sqlTemplates = {
                 mssql: `SELECT 
-    T0.DocNum AS 'Production No.',
+    CASE 
+        WHEN T0.ItemCode LIKE 'I-%' OR T0.ItemCode LIKE 'B-%' THEN 'Blending' 
+        ELSE 'Packing' 
+    END AS 'Production Order Type',
     CASE T0.Type 
         WHEN 'S' THEN 'Standard' 
         WHEN 'P' THEN 'Special' 
         WHEN 'D' THEN 'Disassembly' 
         ELSE T0.Type 
-    END AS 'Production Order Type',
-    CASE 
-        WHEN T0.ItemCode LIKE 'I-%' THEN 'Blending' 
-        ELSE 'Filling' 
     END AS 'Production Type',
+    T0.DocNum AS 'Production No.',
     T0.ItemCode AS 'Item Code',
-    T0.ProdName AS 'Product Description',
+    T1.SWW AS 'Externel Code',
+    T0.ProdName AS 'Production Name',
     CASE 
-        WHEN T0.ItemCode LIKE 'I-%' THEN T0.ItemCode 
-        ELSE '' 
+        WHEN T0.ItemCode LIKE 'I-%' OR T0.ItemCode LIKE 'B-%' THEN T0.ItemCode
+        ELSE ISNULL(T2.ItemCode, '')
     END AS 'Bulk Oil Code',
     CASE 
-        WHEN T0.ItemCode LIKE 'I-%' THEN T0.ProdName 
-        ELSE '' 
+        WHEN T0.ItemCode LIKE 'I-%' OR T0.ItemCode LIKE 'B-%' THEN T0.ProdName
+        ELSE ISNULL(T3.ItemName, '')
     END AS 'Bulk Oil Name',
-    T0.PlannedQty AS 'Planned Qty',
-    ISNULL(T1.InvntryUom, '') AS 'UoM',
+    T1.ItmsGrpCod AS 'Product Group',
+    T0.Warehouse AS 'Warehouse',
+    T0.U_ZG_Batch AS 'Batch No.',
+    CASE T0.Status 
+        WHEN 'P' THEN 'Planned' 
+        WHEN 'R' THEN 'Released' 
+        ELSE T0.Status 
+    END AS 'Production Order Status',
+    T0.PlannedQty AS 'QTY',
+    T1.InvntryUom AS 'Unit',
+    1 AS 'Factor to Litre',
+    T0.PlannedQty AS 'Qty Litre',
+    T0.PostDate AS 'Order Date',
     T0.StartDate AS 'Start Date',
     T0.DueDate AS 'Due Date',
-    T0.Warehouse AS 'Warehouse',
-    T0.Comments AS 'Remarks'
+    T0.CloseDate AS 'Closing Date',
+    T0.U_ZG_PDTank AS 'Product Tank',
+    'N' AS 'Chekendprod',
+    T0.OriginNum AS 'Link SO',
+    T0.Comments AS 'Remark',
+    T0.U_ZG_Oper1 AS 'Operation 1',
+    T0.U_ZG_Oper2 AS 'Operation 2',
+    T0.U_ZG_Oper3 AS 'Operation 3',
+    T4.U_NAME AS 'Create BY'
 FROM OWOR T0
 LEFT JOIN OITM T1 ON T0.ItemCode = T1.ItemCode
+LEFT JOIN WOR1 T2 ON T0.DocEntry = T2.DocEntry AND (T2.ItemCode LIKE 'I-%' OR T2.ItemCode LIKE 'B-%')
+LEFT JOIN OITM T3 ON T2.ItemCode = T3.ItemCode
+LEFT JOIN OUSR T4 ON T0.UserSign = T4.USERID
 WHERE T0.Status IN ('P', 'R')
 ORDER BY T0.DocNum DESC`,
                 simple: `SELECT 
-    T0.DocNum,
-    T0.Type,
-    T0.ItemCode,
-    T0.ProdName,
-    T0.PlannedQty,
-    T1.InvntryUom,
-    T0.StartDate,
-    T0.DueDate,
-    T0.Warehouse,
-    T0.Comments
+    T0.DocNum AS 'Production No.',
+    CASE 
+        WHEN T0.ItemCode LIKE 'I-%' OR T0.ItemCode LIKE 'B-%' THEN 'Blending' 
+        ELSE 'Packing' 
+    END AS 'Production Order Type',
+    T0.ItemCode AS 'Item Code',
+    T0.ProdName AS 'Production Name',
+    CASE 
+        WHEN T0.ItemCode LIKE 'I-%' OR T0.ItemCode LIKE 'B-%' THEN T0.ItemCode
+        ELSE ISNULL(T2.ItemCode, '')
+    END AS 'Bulk Oil Code',
+    CASE 
+        WHEN T0.ItemCode LIKE 'I-%' OR T0.ItemCode LIKE 'B-%' THEN T0.ProdName
+        ELSE ISNULL(T3.ItemName, '')
+    END AS 'Bulk Oil Name',
+    T0.U_ZG_Batch AS 'Batch No.',
+    CASE T0.Status WHEN 'P' THEN 'Planned' WHEN 'R' THEN 'Released' ELSE T0.Status END AS 'Status',
+    T0.PlannedQty AS 'QTY',
+    T1.InvntryUom AS 'Unit',
+    T0.U_ZG_PDTank AS 'Product Tank',
+    T0.U_ZG_Oper1 AS 'Operation 1',
+    T0.Warehouse AS 'Warehouse',
+    T0.Comments AS 'Remark'
 FROM OWOR T0
 LEFT JOIN OITM T1 ON T0.ItemCode = T1.ItemCode
+LEFT JOIN WOR1 T2 ON T0.DocEntry = T2.DocEntry AND (T2.ItemCode LIKE 'I-%' OR T2.ItemCode LIKE 'B-%')
+LEFT JOIN OITM T3 ON T2.ItemCode = T3.ItemCode
 WHERE T0.Status IN ('P', 'R')
 ORDER BY T0.DocNum DESC`,
                 hana: `SELECT 
-    T0."DocNum" AS "Production No.",
+    CASE 
+        WHEN T0."ItemCode" LIKE 'I-%' OR T0."ItemCode" LIKE 'B-%' THEN 'Blending' 
+        ELSE 'Packing' 
+    END AS "Production Order Type",
     CASE T0."Type" 
         WHEN 'S' THEN 'Standard' 
         WHEN 'P' THEN 'Special' 
         WHEN 'D' THEN 'Disassembly' 
         ELSE T0."Type" 
-    END AS "Production Order Type",
-    CASE 
-        WHEN T0."ItemCode" LIKE 'I-%' THEN 'Blending' 
-        ELSE 'Filling' 
     END AS "Production Type",
+    T0."DocNum" AS "Production No.",
     T0."ItemCode" AS "Item Code",
-    T0."ProdName" AS "Product Description",
+    T1."SWW" AS "Externel Code",
+    T0."ProdName" AS "Production Name",
     CASE 
-        WHEN T0."ItemCode" LIKE 'I-%' THEN T0."ItemCode" 
-        ELSE '' 
+        WHEN T0."ItemCode" LIKE 'I-%' OR T0."ItemCode" LIKE 'B-%' THEN T0."ItemCode"
+        ELSE IFNULL(T2."ItemCode", '')
     END AS "Bulk Oil Code",
     CASE 
-        WHEN T0."ItemCode" LIKE 'I-%' THEN T0."ProdName" 
-        ELSE '' 
+        WHEN T0."ItemCode" LIKE 'I-%' OR T0."ItemCode" LIKE 'B-%' THEN T0."ProdName"
+        ELSE IFNULL(T3."ItemName", '')
     END AS "Bulk Oil Name",
-    T0."PlannedQty" AS "Planned Qty",
-    IFNULL(T1."InvntryUom", '') AS "UoM",
+    T1."ItmsGrpCod" AS "Product Group",
+    T0."Warehouse" AS "Warehouse",
+    T0."U_ZG_Batch" AS "Batch No.",
+    CASE T0."Status" 
+        WHEN 'P' THEN 'Planned' 
+        WHEN 'R' THEN 'Released' 
+        ELSE T0."Status" 
+    END AS "Production Order Status",
+    T0."PlannedQty" AS "QTY",
+    T1."InvntryUom" AS "Unit",
+    1 AS "Factor to Litre",
+    T0."PlannedQty" AS "Qty Litre",
+    T0."PostDate" AS "Order Date",
     T0."StartDate" AS "Start Date",
     T0."DueDate" AS "Due Date",
-    T0."Warehouse" AS "Warehouse",
-    T0."Comments" AS "Remarks"
+    T0."CloseDate" AS "Closing Date",
+    T0."U_ZG_PDTank" AS "Product Tank",
+    'N' AS "Chekendprod",
+    T0."OriginNum" AS "Link SO",
+    T0."Comments" AS "Remark",
+    T0."U_ZG_Oper1" AS "Operation 1",
+    T0."U_ZG_Oper2" AS "Operation 2",
+    T0."U_ZG_Oper3" AS "Operation 3",
+    T4."U_NAME" AS "Create BY"
 FROM "OWOR" T0
 LEFT JOIN "OITM" T1 ON T0."ItemCode" = T1."ItemCode"
+LEFT JOIN "WOR1" T2 ON T0."DocEntry" = T2."DocEntry" AND (T2."ItemCode" LIKE 'I-%' OR T2."ItemCode" LIKE 'B-%')
+LEFT JOIN "OITM" T3 ON T2."ItemCode" = T3."ItemCode"
+LEFT JOIN "OUSR" T4 ON T0."UserSign" = T4."USERID"
 WHERE T0."Status" IN ('P', 'R')
 ORDER BY T0."DocNum" DESC`
               };
@@ -7540,21 +7658,21 @@ ORDER BY T0."DocNum" DESC`
                           onClick={() => setSqlDialect('mssql')}
                           className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${sqlDialect === 'mssql' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          MS SQL Server (แนะนำ)
+                          MS SQL Server (ครบ 26 คอลัมน์ + Bulk Oil แนะนำ)
                         </button>
                         <button
                           type="button"
                           onClick={() => setSqlDialect('simple')}
                           className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${sqlDialect === 'simple' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          แบบพื้นฐาน (Simple - ผ่าน 100%)
+                          แบบย่อ (Simple)
                         </button>
                         <button
                           type="button"
                           onClick={() => setSqlDialect('hana')}
                           className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${sqlDialect === 'hana' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'}`}
                         >
-                          SAP HANA DB
+                          SAP HANA
                         </button>
                       </div>
 
@@ -7727,9 +7845,19 @@ ORDER BY T0."DocNum" DESC`
                             <span className="font-semibold text-white block truncate" title={ord.productionName}>
                               {ord.productionName || '-'}
                             </span>
+                            {!isBlend && ord.bulkOilName && (
+                              <span className="text-[11px] text-teal-400 block truncate font-medium mt-0.5" title={`เนื้อน้ำมันที่ใช้บรรจุ: ${ord.bulkOilName}`}>
+                                🛢️ น้ำมัน: {ord.bulkOilName}
+                              </span>
+                            )}
                           </td>
                           <td className="p-3 font-mono">
                             <span className="text-slate-400 block text-[11px]">{ord.itemCode || '-'}</span>
+                            {!isBlend && ord.bulkOilCode && (
+                              <span className="text-teal-300 block text-[10px] font-semibold" title={`รหัสเนื้อน้ำมัน: ${ord.bulkOilCode}`}>
+                                [Bulk: {ord.bulkOilCode}]
+                              </span>
+                            )}
                             <span className="text-amber-400 font-semibold block text-[11px]">
                               {ord.batchNo ? `Batch: ${ord.batchNo}` : '<ยังไม่ระบุ Batch>'}
                             </span>
