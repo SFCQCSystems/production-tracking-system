@@ -1,52 +1,92 @@
 -- =========================================================================
--- DATABASE SCHEMA: LUBRICANT MES TRACKING SYSTEM (ONLINE CLOUD DATABASE)
--- Modules:
---   1. Blender Station & Dashboard (ระบบควบคุมถังผสม)
---   2. First Fill / Filling Station & Dashboard (ระบบไลน์บรรจุ)
---   3. QC Lab Gate & Dashboard (ระบบศูนย์ตรวจห้องแล็บ)
---   4. Admin & Executive Management Control (ระบบแอดมินและผู้บริหารควบคุมทั้ง 3 ระบบ)
--- Engine: PostgreSQL 14+ / Supabase / Cloud REST API
+-- DATABASE SCHEMA: PRODUCTION TRACKING SYSTEM (MES & SAP STAGING CLOUD DB)
+-- Engine: PostgreSQL 14+ / Supabase
+-- วิธีใช้งาน: คัดลอกโค้ดทั้งหมดนี้ไปวางใน Supabase -> SQL Editor -> กด Run
 -- =========================================================================
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- =========================================================================
--- 1. MASTER CONFIGURATION & ADMIN CONTROLS (ควบคุมโดยแอดมิน)
+-- 1. MASTER CONFIGURATION & ADMIN CONTROLS (ตารางตั้งค่าระบบและเครื่องจักร)
 -- =========================================================================
 
--- 1.1 ตารางถังผสม (แอดมินเป็นคนเพิ่ม/จัดการเมื่อมีถังใหม่)
+-- 1.1 ตารางถังผสม (26 ถังมาตรฐานโรงงาน)
 CREATE TABLE IF NOT EXISTS blenders (
-    blender_code VARCHAR(20) PRIMARY KEY, -- เช่น 'BLB01', 'BLB02', 'BLB13'
+    blender_code VARCHAR(20) PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
-    capacity_litres NUMERIC(10, 2) NOT NULL,
+    capacity_litres NUMERIC(10, 2) NOT NULL DEFAULT 10000,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 INSERT INTO blenders (blender_code, name, capacity_litres) VALUES
-('BLB01', 'Blender Tank 01 (15,000 L)', 15000),
-('BLB02', 'Blender Tank 02 (25,000 L)', 25000),
-('BLB03', 'Blender Tank 03 (10,000 L)', 10000),
-('BLB04', 'Blender Tank 04 (20,000 L)', 20000),
-('BLB11', 'Blender Tank 11 (30,000 L)', 30000),
-('BLB12', 'Blender Tank 12 (12,000 L)', 12000)
+('BLB01', 'Blender BLB01', 15000),
+('BLB02', 'Blender BLB02', 25000),
+('BLB03', 'Blender BLB03', 10000),
+('BLB04', 'Blender BLB04', 20000),
+('BLB05', 'Blender BLB05', 20000),
+('BLB06', 'Blender BLB06', 20000),
+('BLB07', 'Blender BLB07', 20000),
+('BLB08', 'Blender BLB08', 20000),
+('BLB09', 'Blender BLB09', 20000),
+('BLB10', 'Blender BLB10', 20000),
+('BLB11', 'Blender BLB11', 30000),
+('BLB12', 'Blender BLB12', 12000),
+('BLB13', 'Blender BLB13', 15000),
+('BLB14', 'Blender BLB14', 15000),
+('BLB15', 'Blender BLB15', 15000),
+('SM01', 'Small Mixer SM01', 5000),
+('SM02', 'Small Mixer SM02', 5000),
+('Premix1', 'Premix Tank 01', 3000),
+('Premix2', 'Premix Tank 02', 3000),
+('K01', 'Kettle Tank K01', 5000),
+('K02', 'Kettle Tank K02', 5000),
+('K03', 'Kettle Tank K03', 5000),
+('G01', 'Grease Mixer G01', 5000),
+('G02', 'Grease Mixer G02', 5000),
+('G03', 'Grease Mixer G03', 5000),
+('G04', 'Grease Mixer G04', 5000)
 ON CONFLICT (blender_code) DO NOTHING;
 
--- 1.2 ตารางไลน์บรรจุ (แอดมินเป็นคนเพิ่ม/จัดการ)
+-- 1.2 ตารางไลน์บรรจุ (27 ไลน์บรรจุมาตรฐานโรงงาน)
 CREATE TABLE IF NOT EXISTS filling_lines (
-    line_code VARCHAR(20) PRIMARY KEY, -- เช่น 'Line 1', 'Line 2', 'Line Drum'
+    line_code VARCHAR(20) PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 INSERT INTO filling_lines (line_code, name) VALUES
-('Line 1', 'ไลน์บรรจุดรัม 200 ลิตร (Drum Line 01)'),
-('Line 2', 'ไลน์บรรจุถังเล็กและเพล (Pail Line 02)'),
-('Line 3', 'ไลน์บรรจุแกลลอนอัตโนมัติ (Small Pack Line 03)')
+('FLF01', 'Filling Line FLF01'),
+('FLF02', 'Filling Line FLF02'),
+('FLF03', 'Filling Line FLF03'),
+('FLF04', 'Filling Line FLF04'),
+('FLF05', 'Filling Line FLF05'),
+('FLF06', 'Filling Line FLF06'),
+('FLF07', 'Filling Line FLF07'),
+('FLF08', 'Filling Line FLF08'),
+('FLF09', 'Filling Line FLF09'),
+('FLF10', 'Filling Line FLF10'),
+('FLF11', 'Filling Line FLF11'),
+('FLF12', 'Filling Line FLF12'),
+('FLF13', 'Filling Line FLF13'),
+('FLF14', 'Filling Line FLF14'),
+('FLF15', 'Filling Line FLF15'),
+('FLF16', 'Filling Line FLF16'),
+('FLF17', 'Filling Line FLF17'),
+('FLF18', 'Filling Line FLF18'),
+('FLF19', 'Filling Line FLF19'),
+('FLF20', 'Filling Line FLF20'),
+('FLF21', 'Filling Line FLF21'),
+('FLF22', 'Filling Line FLF22'),
+('FLF23', 'Filling Line FLF23'),
+('FLF24', 'Filling Line FLF24'),
+('FLF25', 'Filling Line FLF25'),
+('FLF26', 'Filling Line FLF26'),
+('FLF27', 'Filling Line FLF27')
 ON CONFLICT (line_code) DO NOTHING;
 
--- 1.3 ตารางเหตุผลสั่ง Resample และ Reject (แอดมินเป็นคนกำหนดหัวข้อให้แล็บเลือก)
+-- 1.3 ตารางเหตุผลแล็บ QC (Resample & Reject Reasons)
 CREATE TABLE IF NOT EXISTS admin_reason_configs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     reason_type VARCHAR(20) NOT NULL CHECK (reason_type IN ('RESAMPLE', 'REJECT')),
@@ -66,173 +106,275 @@ INSERT INTO admin_reason_configs (reason_type, reason_code, reason_text_th, disp
 ('REJECT', 'REJ_SEDIMENT', 'พบตะกอนหรือสิ่งแปลกปลอมเกินเกณฑ์', 3)
 ON CONFLICT (reason_code) DO NOTHING;
 
+-- 1.4 ตารางเวลาเป้าหมาย KPI / SLA
+CREATE TABLE IF NOT EXISTS kpi_sla_configs (
+    config_key VARCHAR(50) PRIMARY KEY,
+    target_minutes NUMERIC(8, 2) NOT NULL,
+    description_th VARCHAR(255),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO kpi_sla_configs (config_key, target_minutes, description_th) VALUES
+('blendingTargetMinutes', 180, 'เวลาเป้าหมายการผสมน้ำมันต่อ Batch (นาที)'),
+('fillingTargetMinutes', 240, 'เวลาเป้าหมายการบรรจุต่อใบสั่งผลิต (นาที)'),
+('packagingTargetMinutes', 30, 'เวลาเป้าหมายการจัดเตรียมและส่งบรรจุภัณฑ์ (นาที)'),
+('labBlendingTargetMinutes', 45, 'เวลาเป้าหมายตรวจแล็บงานผสม (นาที)'),
+('labFillingTargetMinutes', 20, 'เวลาเป้าหมายตรวจแล็บ First Fill ไลน์บรรจุ (นาที)')
+ON CONFLICT (config_key) DO NOTHING;
+
 -- =========================================================================
--- 2. BLENDING MODULE (ระบบถังผสม)
--- ข้อมูลหัว Job: Production No., Name, Batch (เช่น BLB01/1)
--- สถานะ: ยังไม่เริ่ม -> กำลังดำเนินการ -> ดำเนินการเสร็จสิ้น
+-- 2. SAP STAGING ORDERS (ตารางกลางแผนคำสั่งผลิต SAP ครบ 26 คอลัมน์ + Bulk Oil)
+-- รองรับทั้งการซิงค์อัตโนมัติจาก SAP และการอัปโหลดไฟล์ Excel
 -- =========================================================================
 
+-- 2.1 ตารางกลางรวมคำสั่งผลิต SAP ทั้งหมด (Blending & Packing)
+CREATE TABLE IF NOT EXISTS sap_staging_orders (
+    production_no VARCHAR(50) PRIMARY KEY,
+    order_type VARCHAR(30) NOT NULL DEFAULT 'Blending', -- 'Blending' หรือ 'Packing'
+    production_type VARCHAR(30) DEFAULT 'Standard',
+    item_code VARCHAR(100),
+    external_code VARCHAR(100),
+    production_name VARCHAR(255),
+    bulk_oil_code VARCHAR(100), -- รหัสเนื้อน้ำมันที่ใช้บรรจุ (จาก WOR1)
+    bulk_oil_name VARCHAR(255), -- ชื่อเนื้อน้ำมันที่ใช้บรรจุ
+    product_group VARCHAR(50),
+    warehouse VARCHAR(50),
+    batch_no VARCHAR(100), -- เลข Batch (U_ZG_Batch หรือสกัดจาก Remark)
+    status VARCHAR(30) DEFAULT 'Planned', -- 'Planned' หรือ 'Released'
+    qty NUMERIC(14, 4) DEFAULT 0,
+    unit VARCHAR(50) DEFAULT 'Litre',
+    factor_to_litre NUMERIC(10, 4) DEFAULT 1,
+    qty_litre NUMERIC(14, 4) DEFAULT 0,
+    order_date VARCHAR(50),
+    start_date VARCHAR(50),
+    due_date VARCHAR(50),
+    closing_date VARCHAR(50),
+    product_tank VARCHAR(50), -- ถังเก็บปลายทาง (U_ZG_PDTank)
+    chekendprod VARCHAR(20) DEFAULT 'N',
+    link_so VARCHAR(50),
+    remark TEXT,
+    operation_1 VARCHAR(50), -- ถังผสม BLB หรือไลน์บรรจุ FLF (U_ZG_Oper1)
+    operation_2 VARCHAR(50),
+    operation_3 VARCHAR(50),
+    create_by VARCHAR(150),
+    sync_source VARCHAR(50) DEFAULT 'SAP_SYNC',
+    is_manual BOOLEAN DEFAULT FALSE,
+    raw_json JSONB DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2.2 ตารางพักเฉพาะคำสั่งผลิตงานผสม (ใช้ตอนหน้างานผสมค้นหา Production No.)
+CREATE TABLE IF NOT EXISTS sap_staging_blending_orders (
+    production_order_no VARCHAR(50) PRIMARY KEY,
+    oil_name VARCHAR(255),
+    material_code VARCHAR(100),
+    planned_batch_no VARCHAR(100),
+    target_blender_id VARCHAR(50),
+    planned_qty NUMERIC(14, 4) DEFAULT 0,
+    unit VARCHAR(50) DEFAULT 'Litre',
+    target_tank VARCHAR(50),
+    remark TEXT,
+    status VARCHAR(30) DEFAULT 'Planned',
+    order_type VARCHAR(30) DEFAULT 'Blending',
+    is_staged_excel BOOLEAN DEFAULT TRUE,
+    synced_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2.3 ตารางพักเฉพาะคำสั่งผลิตงานบรรจุ (ใช้ตอนหน้างานบรรจุค้นหา Production No. + ผูก Bulk Oil)
+CREATE TABLE IF NOT EXISTS sap_staging_packaging_orders (
+    packaging_order_no VARCHAR(50) PRIMARY KEY,
+    oil_name VARCHAR(255),
+    material_code VARCHAR(100),
+    bulk_oil_code VARCHAR(100),
+    bulk_oil_name VARCHAR(255),
+    filling_batch_no VARCHAR(100),
+    target_package_type VARCHAR(50),
+    planned_qty NUMERIC(14, 4) DEFAULT 0,
+    unit VARCHAR(50),
+    target_tank VARCHAR(50),
+    remark TEXT,
+    status VARCHAR(30) DEFAULT 'Planned',
+    order_type VARCHAR(30) DEFAULT 'Packing',
+    is_staged_excel BOOLEAN DEFAULT TRUE,
+    synced_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =========================================================================
+-- 3. BLENDING MODULE & APPROVED BATCH HISTORY (ระบบถังผสม & ประวัติ Batch QC)
+-- =========================================================================
+
+-- 3.1 ตารางใบงานผสม (Blending Jobs)
 CREATE TABLE IF NOT EXISTS blending_jobs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    blender_code VARCHAR(20) NOT NULL REFERENCES blenders(blender_code),
+    id VARCHAR(100) PRIMARY KEY,
+    blender_code VARCHAR(20) NOT NULL,
     production_no VARCHAR(50) NOT NULL,
     oil_name VARCHAR(255) NOT NULL,
-    batch_no VARCHAR(50) NOT NULL, -- เช่น 'BLB01/1' หรือ 'B260930011'
-    job_status VARCHAR(30) NOT NULL DEFAULT 'ยังไม่เริ่ม'
-        CHECK (job_status IN ('ยังไม่เริ่ม', 'กำลังดำเนินการ', 'ดำเนินการเสร็จสิ้น')),
+    item_code VARCHAR(100),
+    batch_no VARCHAR(100) NOT NULL,
+    target_volume_litre NUMERIC(14, 2) DEFAULT 0,
+    target_tank VARCHAR(50),
+    remark TEXT,
+    job_status VARCHAR(50) NOT NULL DEFAULT 'ยังไม่เริ่ม',
+    steps JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    started_at TIMESTAMP WITH TIME ZONE, -- บันทึกเมื่อกด [ปุ่มเริ่มงาน]
-    completed_at TIMESTAMP WITH TIME ZONE, -- บันทึกเมื่อกด [ปุ่มจบงาน]
-    total_duration_minutes NUMERIC(8, 2) -- เวลารวมตั้งแต่เริ่มผลิตจนจบ
+    started_at TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    total_duration_minutes NUMERIC(8, 2),
+    source VARCHAR(50) DEFAULT 'NORMAL',
+    raw_json JSONB DEFAULT '{}'::jsonb
 );
 
--- สเต็ป 4 ขั้นตอนการผสม (Flush กรอกสิ่งที่ใช้ + ปริมาตร + เวลาแต่ละขั้น)
+-- 3.2 ตารางขั้นตอนย่อยในงานผสม (Job Steps)
 CREATE TABLE IF NOT EXISTS job_steps (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    job_id UUID NOT NULL REFERENCES blending_jobs(id) ON DELETE CASCADE,
-    step_number SMALLINT NOT NULL CHECK (step_number BETWEEN 1 AND 4),
+    id VARCHAR(150) PRIMARY KEY,
+    job_id VARCHAR(100) NOT NULL REFERENCES blending_jobs(id) ON DELETE CASCADE,
+    step_number SMALLINT NOT NULL,
     step_name VARCHAR(150) NOT NULL,
     is_mandatory BOOLEAN NOT NULL DEFAULT FALSE,
-    flush_material VARCHAR(100), -- ใช้อะไรในการ Flush (เช่น Base Oil 150N, Flush Oil)
-    flush_volume_litre NUMERIC(10, 2), -- ปริมาตรที่ใช้ Flush (ลิตร)
-    status VARCHAR(30) NOT NULL DEFAULT 'idle'
-        CHECK (status IN ('idle', 'in_progress', 'waiting_lab', 'waiting_resample', 'lab_passed', 'lab_rejected', 'skipped')),
+    flush_material VARCHAR(100),
+    flush_volume_litre NUMERIC(10, 2),
+    target_tank VARCHAR(50),
+    status VARCHAR(30) NOT NULL DEFAULT 'idle',
     started_at TIMESTAMP WITH TIME ZONE,
     finished_at TIMESTAMP WITH TIME ZONE,
-    step_duration_minutes NUMERIC(8, 2), -- เวลาเดินงานของขั้นตอนนี้
-    CONSTRAINT uq_blending_job_step UNIQUE (job_id, step_number)
+    step_duration_minutes NUMERIC(8, 2)
+);
+
+-- 3.3 ตารางประวัติ Batch น้ำมันผสมที่ผ่านแล็บและค่า Density @ 30°C (ใช้ผูกกับไลน์บรรจุ)
+CREATE TABLE IF NOT EXISTS approved_blending_batches (
+    batch_no VARCHAR(100) PRIMARY KEY,
+    production_no VARCHAR(50),
+    oil_name VARCHAR(255),
+    item_code VARCHAR(100),
+    blender_code VARCHAR(50),
+    density_30c NUMERIC(8, 4),
+    approved_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    inspector_id VARCHAR(100),
+    source VARCHAR(100) DEFAULT 'ระบบปกติ (Blender + Lab)',
+    remark TEXT
 );
 
 -- =========================================================================
--- 3. FILLING MODULE (ระบบไลน์บรรจุ)
--- ข้อมูลหัว Job: ไลน์บรรจุ, Production No., Name, Batch น้ำมัน
--- สถานะ: ยังไม่เริ่ม -> กำลังดำเนินการ -> ดำเนินการเสร็จสิ้น
+-- 4. FILLING MODULE (ระบบไลน์บรรจุ)
 -- =========================================================================
 
 CREATE TABLE IF NOT EXISTS filling_jobs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    line_code VARCHAR(20) NOT NULL REFERENCES filling_lines(line_code),
+    id VARCHAR(100) PRIMARY KEY,
+    line_code VARCHAR(20) NOT NULL,
     production_no VARCHAR(50) NOT NULL,
     item_name VARCHAR(255) NOT NULL,
-    bulk_oil_batch_no VARCHAR(50) NOT NULL, -- Batch น้ำมันต้นทาง
-    job_status VARCHAR(30) NOT NULL DEFAULT 'ยังไม่เริ่ม'
-        CHECK (job_status IN ('ยังไม่เริ่ม', 'กำลังดำเนินการ', 'ดำเนินการเสร็จสิ้น')),
-    materials_ready BOOLEAN NOT NULL DEFAULT FALSE, -- ได้รับการจ่ายภาชนะจากแผนกบรรจุภัณฑ์
-    first_fill_approved BOOLEAN NOT NULL DEFAULT FALSE, -- First Fill ผ่านแล็บ
-    approved_density_30c NUMERIC(6, 4), -- ค่า Density @ 30°C จากแล็บ
+    item_code VARCHAR(100),
+    bulk_oil_code VARCHAR(100),
+    bulk_oil_name VARCHAR(255),
+    bulk_oil_batch_no VARCHAR(100) NOT NULL,
+    package_type VARCHAR(50),
+    planned_qty NUMERIC(14, 2) DEFAULT 0,
+    job_status VARCHAR(50) NOT NULL DEFAULT 'ยังไม่เริ่ม',
+    materials_ready BOOLEAN NOT NULL DEFAULT FALSE,
+    first_fill_approved BOOLEAN NOT NULL DEFAULT FALSE,
+    approved_density_30c NUMERIC(8, 4),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    started_at TIMESTAMP WITH TIME ZONE, -- บันทึกเมื่อกด [ปุ่มเริ่มงาน]
-    completed_at TIMESTAMP WITH TIME ZONE, -- บันทึกเมื่อกด [ปุ่มจบงาน]
-    total_duration_minutes NUMERIC(8, 2)
+    started_at TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    total_duration_minutes NUMERIC(8, 2),
+    raw_json JSONB DEFAULT '{}'::jsonb
 );
 
 -- =========================================================================
--- 4. PACKAGING MODULE (ระบบคลังและจัดการบรรจุภัณฑ์)
--- รับงานเบิกจาก Filling ตาม Production No. / จ่ายภาชนะเรียบร้อย (ไม่ต้องกรอก Lot)
+-- 5. PACKAGING MODULE (ระบบคลังและจัดการบรรจุภัณฑ์)
 -- =========================================================================
 
 CREATE TABLE IF NOT EXISTS packaging_requests (
-    request_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    filling_job_id UUID NOT NULL REFERENCES filling_jobs(id) ON DELETE CASCADE,
-    production_no VARCHAR(50) NOT NULL, -- แสดงเลข Production No. เด่นชัด
+    request_id VARCHAR(100) PRIMARY KEY,
+    filling_job_id VARCHAR(100),
+    production_no VARCHAR(50) NOT NULL,
     item_name VARCHAR(255) NOT NULL,
-    bulk_oil_batch_no VARCHAR(50) NOT NULL,
+    bulk_oil_batch_no VARCHAR(100) NOT NULL,
     line_code VARCHAR(20) NOT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
-        CHECK (status IN ('PENDING', 'PREPARING', 'DISPATCHED')),
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
     t_requested TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    t_received TIMESTAMP WITH TIME ZONE, -- สแตมป์เมื่อกด [รับงานเบิก]
-    t_dispatched TIMESTAMP WITH TIME ZONE, -- สแตมป์เมื่อกด [จ่ายภาชนะเรียบร้อย]
-    prep_duration_minutes NUMERIC(8, 2) -- เวลาจัดเตรียมจนจ่ายเสร็จ
+    t_received TIMESTAMP WITH TIME ZONE,
+    t_dispatched TIMESTAMP WITH TIME ZONE,
+    prep_duration_minutes NUMERIC(8, 2),
+    raw_json JSONB DEFAULT '{}'::jsonb
 );
 
 -- =========================================================================
--- 5. QC LAB GATE (ระบบศูนย์ตรวจห้องแล็บ)
--- รับตัวอย่างจาก Blender และ ไลน์บรรจุ / [ปุ่มรับงาน] / Density @ 30°C / Append-Only
+-- 6. QC LAB GATE (ระบบศูนย์ตรวจห้องแล็บ)
 -- =========================================================================
 
 CREATE TABLE IF NOT EXISTS lab_sample_history (
-    sample_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sample_id VARCHAR(100) PRIMARY KEY,
     source_module VARCHAR(20) NOT NULL CHECK (source_module IN ('BLENDING', 'FILLING')),
-    blending_job_id UUID REFERENCES blending_jobs(id) ON DELETE CASCADE,
-    filling_job_id UUID REFERENCES filling_jobs(id) ON DELETE CASCADE,
+    blending_job_id VARCHAR(100),
+    filling_job_id VARCHAR(100),
     step_number SMALLINT,
     production_no VARCHAR(50) NOT NULL,
-    batch_no VARCHAR(50) NOT NULL,
-    sample_tag VARCHAR(100) NOT NULL, -- 'Blending FG' หรือ 'First Fill'
-    round_number INTEGER NOT NULL DEFAULT 1 CHECK (round_number >= 1),
+    batch_no VARCHAR(100) NOT NULL,
+    oil_name VARCHAR(255),
+    blender_code VARCHAR(50),
+    line_code VARCHAR(50),
+    sample_tag VARCHAR(100) NOT NULL,
+    round_number INTEGER NOT NULL DEFAULT 1,
     t_sent TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     sent_by VARCHAR(100),
-    t_received TIMESTAMP WITH TIME ZONE, -- สแตมป์เมื่อกด [ปุ่มรับงาน]
+    t_received TIMESTAMP WITH TIME ZONE,
     received_by VARCHAR(100),
-    t_approved TIMESTAMP WITH TIME ZONE, -- สแตมป์เมื่อลงผล
+    t_approved TIMESTAMP WITH TIME ZONE,
     inspector_id VARCHAR(100),
-    lab_action VARCHAR(30) NOT NULL DEFAULT 'PENDING'
-        CHECK (lab_action IN ('PENDING', 'APPROVE', 'REQUEST_RESAMPLE', 'REJECT_REWORK')),
-    reason_code VARCHAR(50) REFERENCES admin_reason_configs(reason_code),
+    lab_action VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    reason_code VARCHAR(50),
     reason_description_th VARCHAR(255),
     comment TEXT,
-    density_30c NUMERIC(6, 4), -- มาตรฐาน Density @ 30°C
+    density_30c NUMERIC(8, 4),
     viscosity_40c NUMERIC(8, 2),
     appearance VARCHAR(100),
     is_locked BOOLEAN NOT NULL DEFAULT FALSE,
-    lab_pure_tat_minutes NUMERIC(8, 2), -- เวลาตรวจจริง = t_approved - t_received
-    CONSTRAINT uq_sample_round UNIQUE (source_module, production_no, sample_tag, round_number)
+    lab_pure_tat_minutes NUMERIC(8, 2),
+    raw_json JSONB DEFAULT '{}'::jsonb
 );
 
--- Trigger ป้องกันการแก้ไขหรือลบผลแล็บที่สรุปแล้ว (Strict Append-Only Enforcement)
-CREATE OR REPLACE FUNCTION trg_enforce_append_only_lab()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'DELETE' THEN
-        RAISE EXCEPTION 'STRICT DATA INTEGRITY: Lab audit records cannot be deleted!';
-    END IF;
+-- =========================================================================
+-- 7. USERS, RBAC & SECURITY AUDIT LOGS (ผู้ใช้งานและบันทึกความปลอดภัย)
+-- =========================================================================
 
-    IF TG_OP = 'UPDATE' THEN
-        IF OLD.is_locked = TRUE THEN
-            RAISE EXCEPTION 'STRICT DATA INTEGRITY: Sample Round % is permanently LOCKED. Overwrites are strictly prohibited!', OLD.round_number;
-        END IF;
+CREATE TABLE IF NOT EXISTS app_users (
+    id VARCHAR(100) PRIMARY KEY,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    full_name VARCHAR(150) NOT NULL,
+    role VARCHAR(50) NOT NULL DEFAULT 'OPERATOR',
+    department VARCHAR(100),
+    allowed_systems JSONB DEFAULT '[]'::jsonb,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
-        IF NEW.lab_action IN ('APPROVE', 'REQUEST_RESAMPLE', 'REJECT_REWORK') THEN
-            NEW.is_locked := TRUE;
-            NEW.t_approved := COALESCE(NEW.t_approved, CURRENT_TIMESTAMP);
-            IF NEW.t_received IS NOT NULL THEN
-                NEW.lab_pure_tat_minutes := ROUND(EXTRACT(EPOCH FROM (NEW.t_approved - NEW.t_received)) / 60.0, 2);
-            END IF;
-        END IF;
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_lab_audit_append_only ON lab_sample_history;
-CREATE TRIGGER trg_lab_audit_append_only
-    BEFORE UPDATE OR DELETE ON lab_sample_history
-    FOR EACH ROW
-    EXECUTE FUNCTION trg_enforce_append_only_lab();
+CREATE TABLE IF NOT EXISTS security_audit_logs (
+    id VARCHAR(100) PRIMARY KEY,
+    event_type VARCHAR(50) NOT NULL,
+    username VARCHAR(100),
+    details TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
 -- =========================================================================
--- 6. DYNAMIC API INTEGRATIONS & EXTERNAL CREDENTIAL STORAGE (ENCRYPTED)
--- ตารางเก็บการตั้งค่าเชื่อมต่อ ERP และ LIMS แบบ Encrypted Storage
+-- 8. SAP ERP GATEWAY INTEGRATION CONFIG & SYNC LOGS
 -- =========================================================================
 
 CREATE TABLE IF NOT EXISTS system_api_integrations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    integration_type VARCHAR(20) NOT NULL UNIQUE CHECK (integration_type IN ('ERP', 'FILLING', 'LIMS')),
+    integration_type VARCHAR(20) NOT NULL UNIQUE CHECK (integration_type IN ('ERP', 'FILLING')),
     label VARCHAR(100) NOT NULL,
     is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     endpoint_url TEXT NOT NULL DEFAULT '',
-    auth_type VARCHAR(20) NOT NULL DEFAULT 'none' 
-        CHECK (auth_type IN ('none', 'api_key', 'bearer', 'basic')),
+    auth_type VARCHAR(20) NOT NULL DEFAULT 'none' CHECK (auth_type IN ('none', 'api_key', 'bearer', 'basic')),
     header_name VARCHAR(100) DEFAULT '',
-    -- เข้ารหัส Secret Tokens / Passwords ด้วย pgcrypto (pgp_sym_encrypt) หรือบันทึก Ciphertext จาก Backend
     encrypted_secret_token TEXT DEFAULT '',
     basic_username VARCHAR(100) DEFAULT '',
     encrypted_basic_password TEXT DEFAULT '',
-    polling_interval_minutes INTEGER NOT NULL DEFAULT 5 CHECK (polling_interval_minutes >= 1),
-    ingestion_mode VARCHAR(20) NOT NULL DEFAULT 'manual' CHECK (ingestion_mode IN ('manual', 'auto')),
-    -- JSON Dynamic Field Mapping: {'productionNo': '$.order_id', 'oilName': '$.sku_name'}
+    polling_interval_minutes INTEGER NOT NULL DEFAULT 5,
+    ingestion_mode VARCHAR(20) NOT NULL DEFAULT 'auto',
     field_mappings JSONB NOT NULL DEFAULT '{}'::jsonb,
     last_test_status VARCHAR(30) DEFAULT 'untested',
     last_test_message TEXT,
@@ -242,72 +384,94 @@ CREATE TABLE IF NOT EXISTS system_api_integrations (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- ตาราง Log ประวัติการดึงข้อมูลและ Sync Audit Trail
 CREATE TABLE IF NOT EXISTS api_sync_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    integration_type VARCHAR(20) NOT NULL REFERENCES system_api_integrations(integration_type) ON DELETE CASCADE,
-    sync_direction VARCHAR(10) NOT NULL DEFAULT 'INBOUND', -- READ-ONLY INGESTION
-    status VARCHAR(20) NOT NULL CHECK (status IN ('SUCCESS', 'FAILED', 'PARTIAL', 'TIMEOUT')),
+    integration_type VARCHAR(20) NOT NULL,
+    sync_direction VARCHAR(10) NOT NULL DEFAULT 'INBOUND',
+    status VARCHAR(20) NOT NULL,
     http_status INTEGER,
     records_fetched INTEGER DEFAULT 0,
     records_imported INTEGER DEFAULT 0,
+    records_removed INTEGER DEFAULT 0,
     error_message TEXT,
-    response_payload_preview TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Seed ค่าเริ่มต้นของ ERP, FILLING และ LIMS integration
-INSERT INTO system_api_integrations (integration_type, label, is_enabled, polling_interval_minutes, ingestion_mode, field_mappings)
-VALUES 
-(
-    'ERP', 
-    'ERP / Order Ingestion API (Blending)', 
-    FALSE, 
-    5, 
-    'manual', 
-    '{"productionNo": "order_id", "oilName": "product_name", "batchNo": "batch_code", "targetVolume": "target_qty", "blenderCode": "tank_id"}'::jsonb
-),
-(
-    'FILLING', 
-    'Filling / Packaging Ingestion API', 
-    FALSE, 
-    5, 
-    'manual', 
-    '{"lineCode": "line_id", "productionNo": "order_id", "itemName": "item_name", "bulkOilBatchNo": "source_batch"}'::jsonb
-),
-(
-    'LIMS', 
-    'LIMS / Lab Result API', 
-    FALSE, 
-    10, 
-    'manual', 
-    '{"productionNo": "sample_order_no", "batchNo": "lot_no", "sampleTag": "stage", "density30c": "test_results.density_30c", "viscosity40c": "test_results.viscosity_40c", "appearance": "test_results.appearance", "labAction": "status"}'::jsonb
-)
+INSERT INTO system_api_integrations (integration_type, label, is_enabled, polling_interval_minutes, ingestion_mode)
+VALUES ('ERP', 'Central SAP ERP Gateway (Blending & Filling Unified)', FALSE, 5, 'auto')
 ON CONFLICT (integration_type) DO NOTHING;
 
 -- =========================================================================
--- 6. GITHUB PAGES REAL-TIME SYNC STORE (สำหรับรันบน GitHub Pages & Mobile 100% Online)
+-- 9. REAL-TIME MULTI-DEVICE SYNC STORE (หัวใจหลักสำหรับซิงค์ทุกหน้าจอ Real-time)
 -- =========================================================================
 
 CREATE TABLE IF NOT EXISTS mes_sync_store (
     collection_name VARCHAR(50) PRIMARY KEY,
-    data JSONB NOT NULL,
+    data JSONB NOT NULL DEFAULT '[]'::jsonb,
     revision BIGINT DEFAULT 1,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- อนุญาตให้ Anon Key อ่านและบันทึกข้อมูลได้สำหรับการใช้งานหน้าร้าน/มือถือ (Row Level Security)
-ALTER TABLE mes_sync_store ENABLE ROW LEVEL SECURITY;
+-- สร้างรายการเริ่มต้นให้ครบทุก Collection ในระบบ
+INSERT INTO mes_sync_store (collection_name, data, revision) VALUES
+('blending', '[]'::jsonb, 1),
+('filling', '[]'::jsonb, 1),
+('packaging', '[]'::jsonb, 1),
+('lab', '[]'::jsonb, 1),
+('adminConfig', '{}'::jsonb, 1),
+('users', '[]'::jsonb, 1),
+('sapStagingOrders', '[]'::jsonb, 1),
+('auditLogs', '[]'::jsonb, 1)
+ON CONFLICT (collection_name) DO NOTHING;
 
-DO $$ 
+-- =========================================================================
+-- 10. ROW LEVEL SECURITY (RLS) POLICIES (เปิดสิทธิ์ให้หน้าเว็บเชื่อมต่อผ่าน Anon Key ได้ครบทุกตาราง)
+-- =========================================================================
+
+DO $$
+DECLARE
+    tbl TEXT;
+    pol_name TEXT;
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies 
-        WHERE tablename = 'mes_sync_store' AND policyname = 'Allow public read-write mes_sync_store'
-    ) THEN
-        CREATE POLICY "Allow public read-write mes_sync_store" 
-        ON mes_sync_store FOR ALL USING (true) WITH CHECK (true);
-    END IF;
+    FOREACH tbl IN ARRAY ARRAY[
+        'blenders',
+        'filling_lines',
+        'admin_reason_configs',
+        'kpi_sla_configs',
+        'sap_staging_orders',
+        'sap_staging_blending_orders',
+        'sap_staging_packaging_orders',
+        'blending_jobs',
+        'job_steps',
+        'approved_blending_batches',
+        'filling_jobs',
+        'packaging_requests',
+        'lab_sample_history',
+        'app_users',
+        'security_audit_logs',
+        'system_api_integrations',
+        'api_sync_logs',
+        'mes_sync_store'
+    ]
+    LOOP
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY;', tbl);
+        pol_name := 'Allow public access ' || tbl;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_policies WHERE tablename = tbl AND policyname = pol_name
+        ) THEN
+            EXECUTE format('CREATE POLICY %I ON %I FOR ALL USING (true) WITH CHECK (true);', pol_name, tbl);
+        END IF;
+    END LOOP;
 END $$;
 
+-- =========================================================================
+-- 11. SAFE COLUMN UPGRADES FOR EXISTING TABLES (รองรับการอัปเกรดตารางเดิมโดยข้อมูลไม่หาย)
+-- =========================================================================
+ALTER TABLE sap_staging_orders ADD COLUMN IF NOT EXISTS raw_json JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE blending_jobs ADD COLUMN IF NOT EXISTS raw_json JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE filling_jobs ADD COLUMN IF NOT EXISTS raw_json JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE packaging_requests ADD COLUMN IF NOT EXISTS raw_json JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE lab_sample_history ADD COLUMN IF NOT EXISTS raw_json JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE job_steps ADD COLUMN IF NOT EXISTS target_tank VARCHAR(50);
+ALTER TABLE job_steps ALTER COLUMN id TYPE VARCHAR(150) USING id::text;
 

@@ -38,7 +38,8 @@ index.standalone.html
 # Temporary / Scratch Scripts
 *.ps1
 test_smart_batch.js
-tools/
+tools/*
+!tools/build_standalone.cjs
 
 # Editor directories and files
 .vscode/*
