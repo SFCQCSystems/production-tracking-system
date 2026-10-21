@@ -1495,6 +1495,121 @@ function resolveBlenderCode(prodNo, op1, op2, op3) {
   return '';
 }
 
+function normalizeSapOrderRecord(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const pick = (...keys) => {
+    for (const k of keys) {
+      if (raw[k] !== undefined && raw[k] !== null && String(raw[k]).trim() !== '') {
+        return String(raw[k]).trim();
+      }
+    }
+    return '';
+  };
+
+  const prodNo = pick('Production No.', 'productionNo', 'DocNum', 'docNum', 'production_order_no', 'packaging_order_no', 'orderNo', 'AUFNR');
+  if (!prodNo) return null;
+
+  const itemCode = pick('Item Code', 'itemCode', 'ItemCode', 'material_code', 'MATNR');
+  const rawType = pick('Production Order Type', 'orderType', 'order_type', 'Production Type', 'Type');
+  let orderType = 'Blending';
+  if (rawType.toLowerCase().includes('pack') || rawType.toLowerCase().includes('fill')) {
+    orderType = 'Packing';
+  } else if (rawType.toLowerCase().includes('blend')) {
+    orderType = 'Blending';
+  } else if (itemCode) {
+    orderType = (itemCode.toUpperCase().startsWith('I-') || itemCode.toUpperCase().startsWith('B-')) ? 'Blending' : 'Packing';
+  }
+
+  const statusRaw = pick('Production Order Status', 'status', 'Status') || 'Planned';
+  const sLower = statusRaw.toLowerCase();
+  const isClosedOrCanceled = sLower === 'closed' || sLower === 'l' || sLower === 'canceled' || sLower === 'cancelled' || sLower === 'c';
+  const status = isClosedOrCanceled
+    ? (sLower.startsWith('c') && sLower !== 'closed' ? 'Canceled' : 'Closed')
+    : ((sLower === 'released' || statusRaw.toUpperCase() === 'R') ? 'Released' : 'Planned');
+
+  const rawBatch = pick('Batch No.', 'batchNo', 'U_ZG_Batch', 'planned_batch_no', 'filling_batch_no', 'batch_no');
+  const remark = pick('Remark', 'remark', 'Comments', 'comments');
+  let finalBatch = rawBatch;
+  const isPlaceholder = !rawBatch || ['F', 'CC', 'cc', 'B', 'BB', 'b', 'f'].includes(rawBatch) || rawBatch.startsWith('F(');
+  if (isPlaceholder && remark) {
+    const lotMatch = remark.match(/LOT\s*[:=]\s*([A-Za-z0-9_-]+)/i);
+    if (lotMatch && lotMatch[1]) {
+      finalBatch = lotMatch[1].trim();
+    } else {
+      const bMatch = remark.match(/\b(B2[4-7]\d{6,8}[A-Za-z0-9_]*)\b/i);
+      if (bMatch && bMatch[1]) finalBatch = bMatch[1].trim();
+      else if (isPlaceholder) finalBatch = '';
+    }
+  }
+
+  const op1 = pick('Operation 1', 'operation1', 'U_ZG_Oper1', 'target_blender_id', 'blenderCode', 'lineCode');
+  const op2 = pick('Operation 2', 'operation2', 'U_ZG_Oper2');
+  const op3 = pick('Operation 3', 'operation3', 'U_ZG_Oper3');
+  const allOps = [op1, op2, op3].filter(Boolean);
+  let blenderOrLine = '';
+  if (orderType === 'Blending') {
+    blenderOrLine = resolveBlenderCode(prodNo, op1, op2, op3);
+  } else {
+    blenderOrLine = allOps.find(o => o.toUpperCase().startsWith('FL')) || op1 || '';
+    if (blenderOrLine.toUpperCase().startsWith('ATA')) blenderOrLine = '';
+  }
+
+  const rawQty = parseFloat(pick('QTY', 'qty', 'PlannedQty', 'planned_qty', 'targetVolume')) || 0;
+  const rawUnit = pick('Unit', 'unit', 'InvntryUom', 'target_package_type') || 'Litre';
+  let factorVal = parseFloat(pick('Factor to Litre', 'factorToLitre')) || 0;
+  if (!factorVal || factorVal === 1) {
+    const boxMatch = rawUnit.match(/^Box\s*(\d+)\s*\/\s*([0-9.+LlkKgG\s]+)$/i);
+    if (boxMatch) {
+      const count = parseFloat(boxMatch[1]) || 1;
+      const parts = boxMatch[2].split('+').map(p => parseFloat(p.replace(/[^\d.]/g, '')) || 0);
+      const sumVol = parts.reduce((a, b) => a + b, 0);
+      if (sumVol > 0) factorVal = Number((count * sumVol).toFixed(4));
+    } else {
+      const containerMatch = rawUnit.match(/^(?:Pail|Drum|Gallon|Bulk)\s*(\d+(?:\.\d+)?)\s*(?:L|K|KG)?$/i);
+      if (containerMatch) factorVal = parseFloat(containerMatch[1]) || 1;
+    }
+  }
+  if (!factorVal) factorVal = 1;
+  const rawQtyLitre = parseFloat(pick('Qty Litre', 'qtyLitre')) || 0;
+  const finalQtyLitre = (rawQtyLitre && rawQtyLitre !== rawQty) ? rawQtyLitre : Number((rawQty * factorVal).toFixed(4));
+
+  const prodName = pick('Production Name', 'productionName', 'ProdName', 'oilName', 'oil_name', 'itemName', 'Product Description');
+  const bulkOilCode = pick('Bulk Oil Code', 'bulkOilCode', 'bulk_oil_code') || (orderType === 'Blending' ? itemCode : '');
+  const bulkOilName = pick('Bulk Oil Name', 'bulkOilName', 'bulk_oil_name') || (orderType === 'Blending' ? prodName : '');
+
+  return {
+    productionNo: prodNo,
+    orderType,
+    itemCode,
+    externalCode: pick('Externel Code', 'External Code', 'externalCode', 'SWW'),
+    productionName: prodName,
+    productGroup: pick('Product Group', 'productGroup', 'ItmsGrpCod'),
+    warehouse: pick('Warehouse', 'warehouse', 'WhsCode'),
+    bulkOilCode,
+    bulkOilName,
+    batchNo: finalBatch,
+    status,
+    qty: rawQty,
+    qtyLitre: finalQtyLitre,
+    unit: rawUnit,
+    factorToLitre: factorVal,
+    orderDate: pick('Order Date', 'orderDate', 'PostDate'),
+    startDate: pick('Start Date', 'startDate', 'StartDate'),
+    dueDate: pick('Due Date', 'dueDate', 'DueDate'),
+    closingDate: pick('Closing Date', 'closingDate', 'CloseDate'),
+    productTank: pick('Product Tank', 'productTank', 'U_ZG_PDTank', 'target_tank'),
+    chekEndProd: pick('Chekendprod', 'chekEndProd') || 'N',
+    linkSO: pick('Link SO', 'linkSO', 'OriginNum'),
+    operation1: blenderOrLine,
+    operation2: op2,
+    operation3: op3,
+    remark,
+    createBy: pick('Create BY', 'createBy', 'U_NAME'),
+    syncSource: raw._syncSource || 'SAP_SYNC',
+    updatedAt: new Date().toISOString()
+  };
+}
+
 function getBlenderDensityForBatch(targetBatch, targetProdNo, samples = [], jobs = []) {
   const cleanBatch = targetBatch ? String(targetBatch).trim().toLowerCase() : '';
   const cleanProd = targetProdNo ? String(targetProdNo).trim().toLowerCase() : '';
@@ -1574,6 +1689,57 @@ function getBlenderDensityForBatch(targetBatch, targetProdNo, samples = [], jobs
   return null;
 }
 
+function buildStagingResponseRecord(found, cleanNo, isBlending) {
+  const rawB = found.batchNo || found.batch_no || found.planned_batch_no || found.filling_batch_no || '';
+  const remText = found.remark || '';
+  let smartBatch = rawB;
+  const isPh = !rawB || ['F', 'CC', 'cc', 'B', 'BB', 'b', 'f'].includes(rawB) || String(rawB).startsWith('F(');
+  if (isPh && remText) {
+    const lm = remText.match(/LOT\s*[:=]\s*([A-Za-z0-9_-]+)/i);
+    if (lm && lm[1]) smartBatch = lm[1].trim();
+    else {
+      const bm = remText.match(/\b(B2[4-7]\d{6,8}[A-Za-z0-9_]*)\b/i);
+      if (bm && bm[1]) smartBatch = bm[1].trim();
+      else if (isPh) smartBatch = '';
+    }
+  }
+
+  const smartBlender = isBlending
+    ? (resolveBlenderCode(cleanNo, found.operation1, found.operation2, found.operation3) || (found.target_blender_id && !String(found.target_blender_id).toUpperCase().startsWith('ATA') ? found.target_blender_id : ''))
+    : '';
+  return isBlending ? {
+    production_order_no: cleanNo,
+    oil_name: found.productionName || found.oilName || found.oil_name || '',
+    material_code: found.itemCode || found.material_code || '',
+    planned_batch_no: smartBatch,
+    target_blender_id: smartBlender,
+    planned_qty: parseFloat(found.qtyLitre || found.qty || found.planned_qty || 0),
+    unit: found.unit || 'Litre',
+    target_tank: found.productTank || found.target_tank || '',
+    remark: found.remark || '',
+    status: found.status || 'Planned',
+    order_type: found.orderType || 'Blending',
+    synced_at: new Date().toISOString(),
+    is_staged_excel: true
+  } : {
+    packaging_order_no: cleanNo,
+    oil_name: found.productionName || found.oilName || found.oil_name || '',
+    material_code: found.itemCode || found.material_code || '',
+    bulk_oil_code: found.bulkOilCode || found.bulk_oil_code || '',
+    bulk_oil_name: found.bulkOilName || found.bulk_oil_name || '',
+    filling_batch_no: smartBatch,
+    target_package_type: found.unit || found.package || '',
+    planned_qty: parseFloat(found.qty || found.qtyLitre || found.planned_qty || 0),
+    unit: found.unit || '',
+    target_tank: found.productTank || '',
+    remark: found.remark || '',
+    status: found.status || 'Planned',
+    order_type: found.orderType || 'Packing',
+    synced_at: new Date().toISOString(),
+    is_staged_excel: true
+  };
+}
+
 async function searchSapAndSyncSupabase(prodNo, moduleType, dbConfig) {
   const cleanNo = (prodNo || '').trim();
   if (!cleanNo) return { success: false, message: 'กรุณากรอกเลข Production No.' };
@@ -1583,7 +1749,97 @@ async function searchSapAndSyncSupabase(prodNo, moduleType, dbConfig) {
   const keyField = isBlending ? 'production_order_no' : 'packaging_order_no';
   const hasSupabase = Boolean(dbConfig?.supabaseUrl && dbConfig?.supabaseAnonKey);
 
-  // ขั้นที่ 0: ค้นหาจากแผนคำสั่งผลิต SAP ที่อัปโหลดผ่าน Excel (Staging Orders)
+  // =========================================================================
+  // ขั้นที่ 1 (Hybrid Live Check): หากเปิดเชื่อม SAP ERP อยู่ ให้เช็คข้อมูลสดเฉพาะใบนี้ก่อน (Timeout 2.5s)
+  // พร้อมอัปเดตทับลงตารางแผนคำสั่งผลิต SAP (Staging) อัตโนมัติ
+  // =========================================================================
+  try {
+    const apiCfgRaw = localStorage.getItem(STORAGE_API_CONFIG);
+    const apiCfg = apiCfgRaw ? JSON.parse(apiCfgRaw) : null;
+    const erpCfg = apiCfg?.erp;
+    if (erpCfg && erpCfg.enabled && erpCfg.endpointUrl) {
+      const base = erpCfg.endpointUrl.replace(/\/+$/, '');
+      const subPath = erpCfg.unifiedOrderMode !== false
+        ? (erpCfg.unifiedOrdersPath || '/api/v1/production-orders')
+        : (isBlending ? (erpCfg.blendingPath || '/api/v1/blending-orders') : (erpCfg.fillingPath || '/api/v1/filling-orders'));
+      const fullUrl = (base.endsWith(subPath) ? base : base + (subPath.startsWith('/') ? subPath : '/' + subPath))
+        + (subPath.includes('?') ? '&' : '?') + 'productionNo=' + encodeURIComponent(cleanNo);
+
+      const headers = {};
+      if (erpCfg.authType === 'api_key' && erpCfg.headerName && erpCfg.secretValue) {
+        headers[erpCfg.headerName] = erpCfg.secretValue;
+      } else if (erpCfg.authType === 'bearer' && erpCfg.secretValue) {
+        headers['Authorization'] = 'Bearer ' + erpCfg.secretValue;
+      } else if (erpCfg.authType === 'basic' && erpCfg.basicUsername) {
+        headers['Authorization'] = 'Basic ' + btoa(erpCfg.basicUsername + ':' + (erpCfg.basicPassword || ''));
+      }
+
+      const liveRes = await fetch(fullUrl, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(2500)
+      });
+
+      if (liveRes.ok) {
+        const rawJson = await liveRes.json();
+        const items = Array.isArray(rawJson) ? rawJson : (rawJson.value || rawJson.data || rawJson.items || rawJson.results || [rawJson]);
+        const normalizedList = items.map(it => normalizeSapOrderRecord({ ...it, _syncSource: 'SAP_LIVE' })).filter(Boolean);
+        const matchedLive = normalizedList.find(o => String(o.productionNo).toLowerCase() === cleanNo.toLowerCase());
+
+        if (matchedLive) {
+          // หากใน SAP เปลี่ยนสถานะเป็น Closed หรือ Canceled แล้ว ให้ลบออกจากตารางพักทันทีและแจ้งเตือนหน้างาน
+          if (matchedLive.status === 'Closed' || matchedLive.status === 'Canceled') {
+            try {
+              const currentStagingRaw = localStorage.getItem(STORAGE_SAP_STAGING_ORDERS);
+              const currentList = currentStagingRaw ? JSON.parse(currentStagingRaw) : [];
+              if (Array.isArray(currentList)) {
+                const filtered = currentList.filter(item => String(item.productionNo || '').trim().toLowerCase() !== cleanNo.toLowerCase());
+                localStorage.setItem(STORAGE_SAP_STAGING_ORDERS, JSON.stringify(filtered));
+              }
+            } catch (e) {}
+            return {
+              success: false,
+              message: `คำสั่งผลิตเลขที่ "${cleanNo}" ถูกเปลี่ยนสถานะเป็น ${matchedLive.status} (ปิดหรือยกเลิก) ในระบบ SAP แล้ว ระบบได้ลบออกจากตารางแผนผลิตอัตโนมัติ`
+            };
+          }
+
+          // อัปเดตเข้าตารางพัก (Staging) ทันทีเพื่อให้ตารางกลางเป็นข้อมูลล่าสุดเสมอ
+          try {
+            const currentStagingRaw = localStorage.getItem(STORAGE_SAP_STAGING_ORDERS);
+            const currentList = currentStagingRaw ? JSON.parse(currentStagingRaw) : [];
+            const map = new Map();
+            if (Array.isArray(currentList)) {
+              currentList.forEach(item => {
+                const k = String(item.productionNo || '').trim().toLowerCase();
+                if (k) map.set(k, item);
+              });
+            }
+            map.set(cleanNo.toLowerCase(), {
+              ...(map.get(cleanNo.toLowerCase()) || {}),
+              ...matchedLive,
+              updatedAt: new Date().toISOString(),
+              isRecentlyUpdated: true
+            });
+            localStorage.setItem(STORAGE_SAP_STAGING_ORDERS, JSON.stringify(Array.from(map.values())));
+          } catch (e) {}
+
+          const liveRecord = buildStagingResponseRecord(matchedLive, cleanNo, isBlending);
+          return {
+            success: true,
+            source: 'SAP_LIVE',
+            data: liveRecord,
+            message: 'ดึงข้อมูลสดล่าสุดจาก SAP สำเร็จ: ' + liveRecord.oil_name
+          };
+        }
+      }
+    }
+  } catch (liveErr) {
+    console.warn('Live SAP check skipped/fallback to staging:', liveErr?.message || liveErr);
+  }
+
+  // =========================================================================
+  // ขั้นที่ 2: ค้นหาจากตารางแผนคำสั่งผลิต SAP ในระบบ (Staging Orders - จาก Auto-Sync หรือ Excel)
+  // =========================================================================
   try {
     const localStagingJson = localStorage.getItem(STORAGE_SAP_STAGING_ORDERS);
     if (localStagingJson) {
@@ -1593,54 +1849,7 @@ async function searchSapAndSyncSupabase(prodNo, moduleType, dbConfig) {
           String(o.productionNo || o.production_order_no || o.orderNo || '').trim().toLowerCase() === cleanNo.toLowerCase()
         );
         if (found) {
-          const rawB = found.batchNo || found.batch_no || found.planned_batch_no || found.filling_batch_no || '';
-          const remText = found.remark || '';
-          let smartBatch = rawB;
-          const isPh = !rawB || ['F', 'CC', 'cc', 'B', 'BB', 'b', 'f'].includes(rawB) || String(rawB).startsWith('F(');
-          if (isPh && remText) {
-            const lm = remText.match(/LOT\s*[:=]\s*([A-Za-z0-9_-]+)/i);
-            if (lm && lm[1]) smartBatch = lm[1].trim();
-            else {
-              const bm = remText.match(/\b(B2[4-7]\d{6,8}[A-Za-z0-9_]*)\b/i);
-              if (bm && bm[1]) smartBatch = bm[1].trim();
-              else if (isPh) smartBatch = '';
-            }
-          }
-
-          const smartBlender = isBlending
-            ? (resolveBlenderCode(cleanNo, found.operation1, found.operation2, found.operation3) || (found.target_blender_id && !String(found.target_blender_id).toUpperCase().startsWith('ATA') ? found.target_blender_id : ''))
-            : '';
-          const stagedRecord = isBlending ? {
-            production_order_no: cleanNo,
-            oil_name: found.productionName || found.oilName || found.oil_name || '',
-            material_code: found.itemCode || found.material_code || '',
-            planned_batch_no: smartBatch,
-            target_blender_id: smartBlender,
-            planned_qty: parseFloat(found.qtyLitre || found.qty || found.planned_qty || 0),
-            unit: found.unit || 'Litre',
-            target_tank: found.productTank || found.target_tank || '',
-            remark: found.remark || '',
-            status: found.status || 'Planned',
-            order_type: found.orderType || 'Blending',
-            synced_at: new Date().toISOString(),
-            is_staged_excel: true
-          } : {
-            packaging_order_no: cleanNo,
-            oil_name: found.productionName || found.oilName || found.oil_name || '',
-            material_code: found.itemCode || found.material_code || '',
-            bulk_oil_code: found.bulkOilCode || found.bulk_oil_code || '',
-            bulk_oil_name: found.bulkOilName || found.bulk_oil_name || '',
-            filling_batch_no: smartBatch,
-            target_package_type: found.unit || found.package || '',
-            planned_qty: parseFloat(found.qty || found.qtyLitre || found.planned_qty || 0),
-            unit: found.unit || '',
-            target_tank: found.productTank || '',
-            remark: found.remark || '',
-            status: found.status || 'Planned',
-            order_type: found.orderType || 'Packing',
-            synced_at: new Date().toISOString(),
-            is_staged_excel: true
-          };
+          const stagedRecord = buildStagingResponseRecord(found, cleanNo, isBlending);
 
           if (hasSupabase) {
             try {
@@ -1660,9 +1869,9 @@ async function searchSapAndSyncSupabase(prodNo, moduleType, dbConfig) {
 
           return {
             success: true,
-            source: 'EXCEL_STAGING',
+            source: found.syncSource === 'SAP_LIVE' || found.syncSource === 'SAP_AUTO_SYNC' ? 'SAP_STAGING_SYNC' : 'EXCEL_STAGING',
             data: stagedRecord,
-            message: 'ดึงข้อมูลจากแผน SAP (Excel):' + stagedRecord.oil_name
+            message: 'ดึงข้อมูลจากตารางแผนคำสั่งผลิต SAP: ' + stagedRecord.oil_name
           };
         }
       }
@@ -1671,7 +1880,7 @@ async function searchSapAndSyncSupabase(prodNo, moduleType, dbConfig) {
     console.warn('Staging query error:', e);
   }
 
-  // ขั้นที่ 1: ค้นหาจาก Supabase
+  // ขั้นที่ 3: ค้นหาจาก Supabase
   if (hasSupabase) {
     try {
       const baseUrl = dbConfig.supabaseUrl.replace(/\/+$/, '');
@@ -1700,7 +1909,7 @@ async function searchSapAndSyncSupabase(prodNo, moduleType, dbConfig) {
     }
   }
 
-  // ขั้นที่ 2: Presets
+  // ขั้นที่ 4: Presets
   const matchedPreset = SAP_ORDER_PRESETS.find(p => p.orderNo.toLowerCase() === cleanNo.toLowerCase());
   if (matchedPreset) {
     const sapRecord = isBlending ? {
@@ -1729,7 +1938,7 @@ async function searchSapAndSyncSupabase(prodNo, moduleType, dbConfig) {
 
   return {
     success: false,
-    message: ` ไม่พบข้อมูลคำสั่งผลิตเลขที่ "${cleanNo}" ในระบบ (กรุณาตรวจสอบความถูกต้อง หรืออัปโหลดไฟล์ Excel แผนการผลิตในหน้า Admin)`
+    message: ` ไม่พบข้อมูลคำสั่งผลิตเลขที่ "${cleanNo}" ในระบบ (กรุณาตรวจสอบความถูกต้อง หรือซิงค์/อัปโหลดแผนการผลิตในหน้า Admin)`
   };
 }
 
@@ -6730,7 +6939,7 @@ LoginScreen;
 
 
 
-function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsertSapStagingOrders, dbConfig, onSyncCloud }) {
+function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsertSapStagingOrders, dbConfig, onSyncCloud, erpConfig, onSyncSapLive, isSyncingSap, onOpenErpSettings }) {
       const [searchQuery, setSearchQuery] = useState('');
       const [typeFilter, setTypeFilter] = useState('ALL'); // 'ALL' | 'Blending' | 'Packing'
       const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'Planned' | 'Released'
@@ -7142,7 +7351,11 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
 
               const statusRaw = getVal(colMap.status) || 'Planned';
               const normStatus = statusRaw.trim();
-              const status = (normStatus.toLowerCase() === 'released') ? 'Released' : (normStatus || 'Planned');
+              const sLow = normStatus.toLowerCase();
+              const isClosedOrCanceled = sLow === 'closed' || sLow === 'l' || sLow === 'canceled' || sLow === 'cancelled' || sLow === 'c';
+              const status = isClosedOrCanceled
+                ? (sLow.startsWith('c') && sLow !== 'closed' ? 'Canceled' : 'Closed')
+                : ((sLow === 'released' || normStatus.toUpperCase() === 'R') ? 'Released' : (normStatus || 'Planned'));
 
               const rawType = getVal(colMap.orderType);
               const curItemCode = getVal(colMap.itemCode);
@@ -7248,17 +7461,18 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
               throw new Error(`ไม่พบข้อมูลคำสั่งผลิตที่มีเลข Production No. ในไฟล์ (ตรวจพบหัวตารางที่แถว ${headerRowIndex + 1}: ${headers.slice(0, 6).join(', ')} | ตัวอย่างข้อมูล: ${debugSample.slice(0, 100)})`);
             }
 
-            const upsertResult = upsertSapStagingOrders(parsed);
-            const bC = parsed.filter(o => o.orderType === 'Blending').length;
-            const pC = parsed.filter(o => o.orderType === 'Packing').length;
+            const upsertResult = upsertSapStagingOrders(parsed, { pruneMissingSapOrders: !isDailyReport });
+            const bC = parsed.filter(o => o.orderType === 'Blending' && o.status !== 'Closed' && o.status !== 'Canceled').length;
+            const pC = parsed.filter(o => o.orderType === 'Packing' && o.status !== 'Closed' && o.status !== 'Canceled').length;
             const plannedC = parsed.filter(o => o.status === 'Planned').length;
             const releasedC = parsed.filter(o => o.status === 'Released').length;
 
             setUploadSummary({
               fileName: file.name,
-              totalParsed: parsed.length,
+              totalParsed: parsed.filter(o => o.status !== 'Closed' && o.status !== 'Canceled').length,
               inserted: upsertResult.inserted,
               updated: upsertResult.updated,
+              removed: upsertResult.removed || 0,
               blendCount: bC,
               packCount: pC,
               plannedCount: plannedC,
@@ -7309,6 +7523,7 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
         upsertSapStagingOrders([{
           ...manualForm,
           productionNo: prod,
+          isManual: true,
           importedAt: new Date().toISOString()
         }]);
         setIsManualAddOpen(false);
@@ -7334,19 +7549,42 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
               <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="font-bold text-white text-lg">แผนคำสั่งผลิต SAP (Staging Orders)</h3>
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-950/80 text-amber-400 border border-amber-700/60">
-                    ดึงออเดอร์ก่อนเชื่อม API
-                  </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-bold text-white text-lg">แผนคำสั่งผลิต SAP (Staging & Live Sync)</h3>
+                  {erpConfig?.enabled ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-950/90 text-emerald-400 border border-emerald-700/60 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                      Auto-Sync ทุก {erpConfig.pollingIntervalMinutes || 5} นาที + โยนไฟล์ Excel ได้
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-950/80 text-amber-400 border border-amber-700/60">
+                      ตารางกลาง (รองรับซิงค์จาก SAP & โยนไฟล์ Excel)
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  นำเข้าไฟล์ Excel สรุปแผนการผลิตจาก SAP (เช่น <b>Production Overview Plan and Released.xlsx</b>) ข้อมูลจะพร้อมใช้งานในหน้าผสมและบรรจุทันที
+                  ตารางกลางเก็บแผนคำสั่งผลิตจาก <b>SAP Auto-Sync</b> และไฟล์ <b>Excel (.xlsx / .csv)</b> • เมื่อหน้างานกดเปิดงาน ระบบจะเช็คข้อมูลสดจาก SAP เฉพาะใบนั้นให้อัตโนมัติและอัปเดตลงตารางนี้ทันที
                 </p>
               </div>
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-2">
+                {onSyncSapLive && (
+                  <button
+                    type="button"
+                    onClick={onSyncSapLive}
+                    disabled={isSyncingSap}
+                    className={`btn-touch px-4 py-2 rounded-xl font-bold text-xs shadow-lg flex items-center gap-1.5 transition-all ${
+                      erpConfig?.enabled
+                        ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/50'
+                        : 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-800/60'
+                    }`}
+                    title={erpConfig?.enabled ? 'ดึงข้อมูลแผนการผลิตล่าสุดจาก SAP เข้าตารางนี้ทันที' : 'ตั้งค่าหรือดึงข้อมูลจาก SAP'}
+                  >
+                    <AppIcon name={isSyncingSap ? 'spinner' : 'refresh'} className="w-3.5 h-3.5 inline-block" />
+                    <span>{isSyncingSap ? 'กำลังซิงค์จาก SAP...' : 'ซิงค์จาก SAP ทันที'}</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -7383,6 +7621,38 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
                   </button>
                 )}
               </div>
+            </div>
+
+            {/* Hybrid SAP Sync + Excel Status Strip */}
+            <div className={`rounded-2xl p-3.5 border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+              erpConfig?.enabled
+                ? 'bg-emerald-950/25 border-emerald-800/60 text-emerald-200'
+                : 'bg-slate-950/70 border-slate-800 text-slate-300'
+            }`}>
+              <div className="flex items-start sm:items-center gap-2.5">
+                <AppIcon name={erpConfig?.enabled ? 'check' : 'building'} className={`w-4 h-4 shrink-0 mt-0.5 sm:mt-0 ${erpConfig?.enabled ? 'text-emerald-400' : 'text-amber-400'}`} />
+                <div>
+                  <span className="font-bold">
+                    {erpConfig?.enabled
+                      ? `สถานะ Hybrid Sync: เปิดเชื่อมต่อ SAP อัตโนมัติ (ดึงเข้าตารางนี้ทุก ${erpConfig.pollingIntervalMinutes || 5} นาที + เช็คสดเฉพาะใบตอนกดเปิดงาน)`
+                      : 'โหมดการทำงาน: ตารางพักพร้อมใช้งาน (โยนไฟล์ Excel ได้ทันที และพร้อมรับข้อมูลอัตโนมัติเมื่อเปิดเชื่อม SAP)'}
+                  </span>
+                  {erpConfig?.lastSyncAt && (
+                    <span className="block sm:inline sm:ml-2 text-[11px] text-slate-400 font-mono">
+                      • ซิงค์ SAP ล่าสุด: {new Date(erpConfig.lastSyncAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} น.
+                    </span>
+                  )}
+                </div>
+              </div>
+              {onOpenErpSettings && (
+                <button
+                  type="button"
+                  onClick={onOpenErpSettings}
+                  className="text-[11px] font-bold text-amber-400 hover:text-amber-300 underline shrink-0 self-end sm:self-center"
+                >
+                  ตั้งค่าการเชื่อมต่อ SAP →
+                </button>
+              )}
             </div>
 
             {/* Hidden File Input */}
@@ -7445,8 +7715,11 @@ function SapStagingManager({ sapStagingOrders = [], saveSapStagingOrders, upsert
                     <b className="text-teal-400 text-sm">{uploadSummary.packCount.toLocaleString()} รายการ</b>
                   </div>
                   <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800">
-                    <span className="text-slate-400 block text-[11px]">การบันทึก</span>
-                    <b className="text-blue-400 text-sm">ปรับปรุง {uploadSummary.updated} / เพิ่มใหม่ {uploadSummary.inserted}</b>
+                    <span className="text-slate-400 block text-[11px]">การซิงค์ & ล้างใบที่ปิดแล้ว</span>
+                    <b className="text-blue-400 text-sm">ปรับปรุง {uploadSummary.updated} / เพิ่ม {uploadSummary.inserted}</b>
+                    <span className="text-[10px] text-rose-400 block">
+                      ลบใบที่ Closed/Canceled: {uploadSummary.removed || 0} รายการ
+                    </span>
                   </div>
                 </div>
               </div>
@@ -9229,6 +9502,7 @@ function App() {
       const [apiTestLoading, setApiTestLoading] = useState({ erp: false, lims: false, filling: false });
       const [apiShowSecrets, setApiShowSecrets] = useState({ erp: false, lims: false, filling: false });
       const [apiPendingIngestion, setApiPendingIngestion] = useState([]);
+      const [isSyncingSap, setIsSyncingSap] = useState(false);
 
       // =========================================================================
       // SAP Overview Plan Staging Orders (จากไฟล์ Excel / CSV ที่แอดมินอัปโหลด)
@@ -9276,11 +9550,13 @@ function App() {
         });
       }, [broadcastDataChange, pushCollectionToServer]);
 
-      // Smart Upsert: รวมหรืออัปเดตคำสั่งผลิตจากไฟล์ Excel ใหม่
-      const upsertSapStagingOrders = useCallback((incomingOrders) => {
-        if (!Array.isArray(incomingOrders) || incomingOrders.length === 0) return { inserted: 0, updated: 0, total: 0 };
+      // Smart Upsert & Auto-Prune: รวม/อัปเดตคำสั่งผลิต และลบใบที่ถูก Closed / Canceled ใน SAP ออกอัตโนมัติ
+      const upsertSapStagingOrders = useCallback((incomingOrders, options = {}) => {
+        if (!Array.isArray(incomingOrders) || incomingOrders.length === 0) return { inserted: 0, updated: 0, removed: 0, total: 0 };
+        const { pruneMissingSapOrders = false } = options;
         let inserted = 0;
         let updated = 0;
+        let removed = 0;
 
         let resultTotal = 0;
         setSapStagingOrders(prev => {
@@ -9290,9 +9566,22 @@ function App() {
             if (k) map.set(k, { ...item });
           });
 
+          const incomingActiveKeys = new Set();
+
           incomingOrders.forEach(item => {
             const k = String(item.productionNo || '').trim().toLowerCase();
             if (!k) return;
+            const st = String(item.status || '').trim().toLowerCase();
+            const isClosedOrCanceled = st === 'closed' || st === 'l' || st === 'canceled' || st === 'cancelled' || st === 'c';
+            if (isClosedOrCanceled) {
+              if (map.has(k)) {
+                map.delete(k);
+                removed++;
+              }
+              return;
+            }
+
+            incomingActiveKeys.add(k);
             if (map.has(k)) {
               const existing = map.get(k);
               map.set(k, {
@@ -9312,6 +9601,18 @@ function App() {
             }
           });
 
+          // หากเป็นการซิงค์ชุดเต็มจาก SAP หรือโยนไฟล์ SAP Overview ล่าสุด:
+          // ออเดอร์ SAP เดิมที่หายไปจากชุดข้อมูล (เพราะถูกเปลี่ยนเป็น Closed หรือ Canceled ใน SAP) จะถูกลบออกอัตโนมัติ
+          if (pruneMissingSapOrders && incomingActiveKeys.size > 0) {
+            for (const [k, existingItem] of map.entries()) {
+              const isManualOrDaily = existingItem.isManual || existingItem.createBy === 'Daily Report';
+              if (!isManualOrDaily && !incomingActiveKeys.has(k)) {
+                map.delete(k);
+                removed++;
+              }
+            }
+          }
+
           const result = Array.from(map.values());
           resultTotal = result.length;
           try {
@@ -9324,7 +9625,7 @@ function App() {
           return result;
         });
 
-        return { inserted, updated, total: resultTotal };
+        return { inserted, updated, removed, total: resultTotal };
       }, [broadcastDataChange, pushCollectionToServer]);
 
       const saveApiConfig = (newConfig) => {
@@ -9432,9 +9733,95 @@ function App() {
         }, obj);
       };
 
+      // ซิงค์คำสั่งผลิตจาก SAP ERP เข้าสู่ตารางกลาง (Staging Orders) โดยตรง
+      const syncSapOrdersToStaging = useCallback(async (isSilent = false) => {
+        const cfg = apiConfig.erp;
+        if (!cfg?.enabled || !cfg?.endpointUrl) {
+          if (!isSilent) {
+            alert('ยังไม่ได้เปิดใช้งานการเชื่อมต่อ SAP ERP กลาง หรือยังไม่ได้ระบุ SAP Base Gateway URL\nกรุณาตั้งค่าในแท็บ "เชื่อมต่อ SAP & ฐานข้อมูล" ก่อนครับ (หรือสามารถโยนไฟล์ Excel เข้าตารางนี้ได้ทันที)');
+          }
+          return { success: false };
+        }
+
+        if (!isSilent) setIsSyncingSap(true);
+        try {
+          const base = cfg.endpointUrl.replace(/\/+$/, '');
+          const subPath = cfg.unifiedOrderMode !== false
+            ? (cfg.unifiedOrdersPath || '/api/v1/production-orders')
+            : (cfg.blendingPath || '/api/v1/blending-orders');
+          const fullUrl = base.endsWith(subPath) ? base : base + (subPath.startsWith('/') ? subPath : '/' + subPath);
+
+          const headers = buildApiHeaders(cfg);
+          delete headers['Content-Type'];
+
+          const res = await fetch(fullUrl, {
+            method: 'GET',
+            headers,
+            signal: AbortSignal.timeout(10000)
+          });
+
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status} ${res.statusText}`);
+          }
+
+          const rawJson = await res.json();
+          const items = Array.isArray(rawJson) ? rawJson : (rawJson.value || rawJson.data || rawJson.items || rawJson.results || [rawJson]);
+          const parsedOrders = items
+            .map(item => normalizeSapOrderRecord({ ...item, _syncSource: 'SAP_AUTO_SYNC' }))
+            .filter(Boolean);
+
+          if (parsedOrders.length === 0) {
+            if (!isSilent) alert('เชื่อมต่อ SAP สำเร็จ แต่ไม่พบรายการคำสั่งผลิตจาก API');
+            return { success: true, totalFetched: 0, inserted: 0, updated: 0 };
+          }
+
+          const upsertRes = upsertSapStagingOrders(parsedOrders, { pruneMissingSapOrders: true });
+          const nowIso = new Date().toISOString();
+          saveApiConfig({
+            ...apiConfig,
+            erp: {
+              ...cfg,
+              lastSyncAt: nowIso,
+              lastTestResult: {
+                status: 'connected',
+                httpStatus: res.status,
+                message: `ซิงค์เข้าตารางสำเร็จ (${parsedOrders.length} รายการ${upsertRes.removed > 0 ? ` • ลบใบที่ปิด/ยกเลิก ${upsertRes.removed} ใบ` : ''})`,
+                testedAt: nowIso
+              }
+            }
+          });
+
+          if (!isSilent) {
+            alert(`ดึงข้อมูลจาก SAP เข้าตารางแผนคำสั่งผลิตสำเร็จ!\n• แผนผลิตที่เปิดอยู่ (Planned/Released): ${parsedOrders.length} รายการ\n• อัปเดตใบเดิม: ${upsertRes.updated} รายการ\n• เพิ่มใบใหม่: ${upsertRes.inserted} รายการ\n• ลบใบที่ถูก Closed/Canceled ออกอัตโนมัติ: ${upsertRes.removed || 0} รายการ`);
+          }
+          return { success: true, totalFetched: parsedOrders.length, ...upsertRes };
+        } catch (err) {
+          console.warn('[SAP Staging Sync Error]', err);
+          if (!isSilent) {
+            alert(`ไม่สามารถดึงข้อมูลจาก SAP ได้: ${err.message}\n(คุณยังสามารถใช้ข้อมูลเดิมในตารางพัก หรือโยนไฟล์ Excel แทนได้ตามปกติครับ)`);
+          }
+          return { success: false, message: err.message };
+        } finally {
+          if (!isSilent) setIsSyncingSap(false);
+        }
+      }, [apiConfig, upsertSapStagingOrders]);
+
+      // Background Auto-Sync Timer สำหรับดึงข้อมูลจาก SAP เข้าตารางพักอัตโนมัติตามรอบเวลาที่ตั้งไว้
+      useEffect(() => {
+        if (!apiConfig.erp?.enabled || !apiConfig.erp?.endpointUrl) return;
+        const intervalMins = Math.max(1, parseInt(apiConfig.erp.pollingIntervalMinutes, 10) || 5);
+        const timerId = setInterval(() => {
+          syncSapOrdersToStaging(true);
+        }, intervalMins * 60 * 1000);
+        return () => clearInterval(timerId);
+      }, [apiConfig.erp?.enabled, apiConfig.erp?.endpointUrl, apiConfig.erp?.pollingIntervalMinutes, syncSapOrdersToStaging]);
+
       const fetchAndMapApiData = async (configType) => {
+        if (configType === 'erp') {
+          return syncSapOrdersToStaging(false);
+        }
         const cfg = apiConfig[configType];
-        if (!cfg.enabled || !cfg.endpointUrl) return;
+        if (!cfg?.enabled || !cfg?.endpointUrl) return;
         try {
           const headers = buildApiHeaders(cfg);
           delete headers['Content-Type'];
@@ -10001,44 +10388,55 @@ function App() {
       const approvedBlendingBatches = useMemo(() => {
         const list = [];
         const seen = new Set();
-        (labSamples || []).forEach((s) => {
-          if (s.sourceModule === 'BLENDING' && s.labAction === 'APPROVE' && s.batchNo) {
-            const b = String(s.batchNo).trim();
-            if (b && !seen.has(b)) {
-              seen.add(b);
-              const bJob = (blendingJobs || []).find((j) => j.batchNo === b || j.productionNo === s.productionNo);
-              list.push({
-                batchNo: b,
-                productionNo: s.productionNo || bJob?.productionNo || '—',
-                oilName: s.oilName || bJob?.oilName || '—',
-                itemCode: bJob?.itemCode || '—',
-                blenderCode: s.blenderCode || bJob?.blenderCode || '—',
-                density30c: s.density30c !== null && s.density30c !== undefined ? s.density30c : '—',
-                approvedAt: s.tApproved || s.tSent,
-                inspectorId: s.inspectorId || '—',
-                source: s.source || (bJob?.source === 'ADMIN_HISTORICAL' ? 'Admin บันทึกย้อนหลัง' : 'ระบบปกติ')
-              });
-            }
+        // เรียงตัวอย่างแล็บที่อนุมัติแล้ว โดยให้ความสำคัญกับตัวอย่างที่มีค่า Density @ 30°C (เช่น Blending FG) และใหม่สุดก่อน
+        const approvedBlendSamples = (labSamples || [])
+          .filter((s) => s.sourceModule === 'BLENDING' && s.labAction === 'APPROVE' && s.batchNo)
+          .slice()
+          .sort((a, b) => {
+            const aHasDen = a.density30c !== null && a.density30c !== undefined && a.density30c !== '' ? 1 : 0;
+            const bHasDen = b.density30c !== null && b.density30c !== undefined && b.density30c !== '' ? 1 : 0;
+            if (bHasDen !== aHasDen) return bHasDen - aHasDen;
+            return new Date(b.tApproved || b.tSent || 0) - new Date(a.tApproved || a.tSent || 0);
+          });
+
+        approvedBlendSamples.forEach((s) => {
+          const b = String(s.batchNo).trim();
+          if (b && !seen.has(b)) {
+            seen.add(b);
+            const bJob = (blendingJobs || []).find((j) => j.batchNo === b || j.productionNo === s.productionNo);
+            const staged = (sapStagingOrders || []).find((o) => String(o.productionNo) === String(s.productionNo || bJob?.productionNo));
+            list.push({
+              batchNo: b,
+              productionNo: s.productionNo || bJob?.productionNo || '—',
+              oilName: s.oilName || bJob?.oilName || staged?.productionName || '—',
+              itemCode: bJob?.itemCode || staged?.itemCode || staged?.bulkOilCode || '—',
+              blenderCode: s.blenderCode || bJob?.blenderCode || staged?.operation1 || '—',
+              density30c: s.density30c !== null && s.density30c !== undefined && s.density30c !== '' ? s.density30c : '—',
+              approvedAt: s.tApproved || s.tSent,
+              inspectorId: s.inspectorId || '—',
+              source: s.source || (bJob?.source === 'ADMIN_HISTORICAL' ? 'Admin บันทึกย้อนหลัง' : 'ระบบปกติ (Blender + Lab)')
+            });
           }
         });
         (blendingJobs || []).forEach((j) => {
           if (j.batchNo && !seen.has(String(j.batchNo).trim())) {
             seen.add(String(j.batchNo).trim());
+            const staged = (sapStagingOrders || []).find((o) => String(o.productionNo) === String(j.productionNo));
             list.push({
               batchNo: j.batchNo,
               productionNo: j.productionNo || '—',
-              oilName: j.oilName || '—',
-              itemCode: j.itemCode || '—',
-              blenderCode: j.blenderCode || '—',
+              oilName: j.oilName || staged?.productionName || '—',
+              itemCode: j.itemCode || staged?.itemCode || staged?.bulkOilCode || '—',
+              blenderCode: j.blenderCode || staged?.operation1 || '—',
               density30c: '—',
               approvedAt: j.completedAt || j.createdAt,
               inspectorId: '—',
-              source: j.source === 'ADMIN_HISTORICAL' ? 'Admin บันทึกย้อนหลัง' : 'ระบบปกติ'
+              source: j.source === 'ADMIN_HISTORICAL' ? 'Admin บันทึกย้อนหลัง' : 'ระบบปกติ (รอผล Density แล็บ)'
             });
           }
         });
         return list;
-      }, [labSamples, blendingJobs]);
+      }, [labSamples, blendingJobs, sapStagingOrders]);
 
       // สลับระบบ พร้อมตรวจสอบสิทธิ์ RBAC
       const handleSwitchSystem = (sys) => {
@@ -17390,7 +17788,7 @@ function App() {
                     {
                       categoryTitle: 'แผนการผลิต & การเชื่อมต่อ',
                       items: [
-                        { id: 'sap_staging', label: 'แผนคำสั่งผลิต SAP (Excel)', desc: 'นำเข้า Excel / SQL Generator SAP B1', count: sapStagingOrders.length, badgeColor: 'bg-blue-100 text-blue-900 border-blue-300' },
+                        { id: 'sap_staging', label: 'แผนคำสั่งผลิต SAP', desc: 'ตารางกลาง (SAP Sync & Excel)', count: sapStagingOrders.length, badgeColor: 'bg-blue-100 text-blue-900 border-blue-300' },
                         { id: 'api', label: 'เชื่อมต่อ SAP & ฐานข้อมูล', desc: 'Central Database & Unified Orders API', count: null }
                       ]
                     },
@@ -18702,6 +19100,10 @@ function App() {
                           saveSapStagingOrders={saveSapStagingOrders}
                           upsertSapStagingOrders={upsertSapStagingOrders}
                           dbConfig={dbConfig}
+                          erpConfig={apiConfig.erp}
+                          onSyncSapLive={() => syncSapOrdersToStaging(false)}
+                          isSyncingSap={isSyncingSap}
+                          onOpenErpSettings={() => setAdminSettingSubTab('api')}
                           onSyncCloud={async () => {
                             if (!dbConfig.supabaseUrl || !dbConfig.supabaseAnonKey) {
                               alert('กรุณาตั้งค่าเชื่อมต่อ Supabase ในแท็บ "เชื่อมต่อ API" ก่อนซิงค์');
@@ -18894,9 +19296,9 @@ function App() {
                             <div className="flex items-center gap-3 mb-1">
                               <div className="w-12 h-12 rounded-2xl bg-amber-950/80 border border-amber-800 text-amber-400 flex items-center justify-center text-2xl shadow-inner"><AppIcon name="building" className="w-8 h-8 mx-auto inline-block" /></div>
                               <div>
-                                <h3 className="font-bold text-white text-lg">การตั้งค่าเชื่อมต่อระบบ SAP ERP & LIMS (Enterprise Integration)</h3>
+                                <h3 className="font-bold text-white text-lg">การตั้งค่าเชื่อมต่อระบบ SAP ERP (Enterprise Integration)</h3>
                                 <p className="text-xs text-slate-400 mt-0.5">
-                                  เชื่อมต่อระบบ SAP ERP กลางจุดเดียวเพื่อดึงคำสั่งผลิต (Blending) และคำสั่งบรรจุ (Filling) พร้อมระบบ LIMS สำหรับห้องแล็บ QC
+                                  เชื่อมต่อระบบ SAP ERP กลางจุดเดียวเพื่อดึงคำสั่งผลิต (Blending) และคำสั่งบรรจุ (Filling)
                                 </p>
                               </div>
                             </div>
@@ -18904,10 +19306,6 @@ function App() {
                               <div className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border ${apiConfig.erp?.enabled && apiConfig.erp.lastTestResult?.status === 'connected' ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800' : apiConfig.erp?.enabled ? 'bg-amber-950/80 text-amber-300 border-amber-800' : 'bg-slate-900 text-slate-400 border-slate-800'}`}>
                                 {apiConfig.erp?.enabled && apiConfig.erp.lastTestResult?.status === 'connected' ? <AppIcon name="check" className="w-4 h-4 shrink-0" /> : apiConfig.erp?.enabled ? <AppIcon name="alert" className="w-4 h-4 shrink-0" /> : <AppIcon name="forbidden" className="w-4 h-4 shrink-0" />}
                                 <span>ระบบ SAP ERP กลาง (ฝ่ายผสม Blending & ฝ่ายบรรจุ Filling)</span>
-                              </div>
-                              <div className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border ${apiConfig.lims?.enabled && apiConfig.lims.lastTestResult?.status === 'connected' ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800' : apiConfig.lims?.enabled ? 'bg-purple-950/80 text-purple-300 border-purple-800' : 'bg-slate-900 text-slate-400 border-slate-800'}`}>
-                                {apiConfig.lims?.enabled && apiConfig.lims.lastTestResult?.status === 'connected' ? <AppIcon name="check" className="w-4 h-4 shrink-0" /> : apiConfig.lims?.enabled ? <AppIcon name="alert" className="w-4 h-4 shrink-0" /> : <AppIcon name="forbidden" className="w-4 h-4 shrink-0" />}
-                                <span>LIMS (ห้องแล็บ QC)</span>
                               </div>
                             </div>
                           </div>
@@ -19105,7 +19503,7 @@ function App() {
                                         </div>
                                       )}
 
-                                      {/* Test Connection Button & Result */}
+                                      {/* Test Connection & Sync to Staging Buttons */}
                                       <div className="pt-2 flex flex-wrap items-center gap-3">
                                         <button
                                           type="button"
@@ -19119,6 +19517,16 @@ function App() {
                                         >
                                           {apiTestLoading.erp ? <AppIcon name="spinner" className="w-3.5 h-3.5 inline-block" /> : null}
                                           <span>{apiTestLoading.erp ? 'กำลังทดสอบการเชื่อมต่อ...' : 'ทดสอบการเชื่อมต่อ SAP กลาง (Test Connection)'}</span>
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => syncSapOrdersToStaging(false)}
+                                          disabled={isSyncingSap}
+                                          className="btn-touch px-5 py-2.5 rounded-xl font-bold text-xs shadow-lg bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-2 transition-all"
+                                        >
+                                          <AppIcon name={isSyncingSap ? 'spinner' : 'refresh'} className="w-3.5 h-3.5 inline-block" />
+                                          <span>{isSyncingSap ? 'กำลังซิงค์เข้าตาราง...' : 'ซิงค์เข้าตารางแผนคำสั่งผลิตทันที (Sync Now)'}</span>
                                         </button>
 
                                         {cfg.lastTestResult && (
@@ -19377,199 +19785,12 @@ function App() {
                             );
                           })()}
 
-                          {/* =========================================================================
-                              CARD 2: LIMS / LAB RESULT API (QC LAB)
-                              ========================================================================= */}
-                          {(() => {
-                            const cfg = apiConfig.lims || DEFAULT_API_CONFIG.lims;
-                            const updateLimsField = (field, value) => {
-                              saveApiConfig({
-                                ...apiConfig,
-                                lims: { ...cfg, [field]: value }
-                              });
-                            };
-                            const updateLimsMapping = (field, value) => {
-                              saveApiConfig({
-                                ...apiConfig,
-                                lims: {
-                                  ...cfg,
-                                  fieldMapping: { ...cfg.fieldMapping, [field]: value }
-                                }
-                              });
-                            };
-
-                            return (
-                              <div className={`bg-slate-900 border-2 rounded-2xl p-5 space-y-4 shadow-lg ${cfg.enabled ? 'border-purple-900/60' : 'border-slate-800 opacity-80'}`}>
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-                                  <div className="flex items-center gap-2.5">
-                                    <AppIcon name="lab" className="w-10 h-10 text-2xl p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400" />
-                                    <div>
-                                      <h4 className="font-bold text-white text-sm">LIMS / Lab Result API (ห้องปฏิบัติการ QC)</h4>
-                                      <p className="text-[11px] text-slate-400 mt-0.5">ดึงผลวิเคราะห์จากระบบ LIMS ภายนอกเพื่ออัปเดตผลตรวจน้ำมันใน MES อัตโนมัติ</p>
-                                    </div>
-                                  </div>
-                                  <label className="flex items-center gap-2 cursor-pointer self-start sm:self-center">
-                                    <span className="text-xs text-slate-400">{cfg.enabled ? 'เปิดใช้งาน' : 'ปิดอยู่'}</span>
-                                    <div
-                                      onClick={() => updateLimsField('enabled', !cfg.enabled)}
-                                      className={`w-11 h-6 rounded-full relative transition-colors cursor-pointer ${cfg.enabled ? 'bg-emerald-600' : 'bg-slate-700'}`}
-                                    >
-                                      <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-all shadow ${cfg.enabled ? 'left-[22px]' : 'left-0.5'}`} />
-                                    </div>
-                                  </label>
-                                </div>
-
-                                {cfg.enabled && (
-                                  <div className="space-y-4 animate-fade-in">
-                                    <div>
-                                      <label className="text-xs text-slate-300 font-bold mb-1.5 block"> LIMS Endpoint URL</label>
-                                      <input
-                                        type="url"
-                                        value={cfg.endpointUrl || ''}
-                                        onChange={(e) => updateLimsField('endpointUrl', e.target.value)}
-                                        placeholder="https://lims.company.com/api/v1/lab-results"
-                                        className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
-                                      />
-                                    </div>
-
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                      <div>
-                                        <label className="text-xs text-slate-300 font-bold mb-1.5 block"> Auth Type</label>
-                                        <select
-                                          value={cfg.authType || 'none'}
-                                          onChange={(e) => updateLimsField('authType', e.target.value)}
-                                          className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-cyan-500"
-                                        >
-                                          <option value="none">None (ไม่ต้องระบุรหัสผ่าน)</option>
-                                          <option value="api_key">API Key (Custom Header)</option>
-                                          <option value="bearer">Bearer Token</option>
-                                          <option value="basic">Basic Auth (Username/Password)</option>
-                                        </select>
-                                      </div>
-
-                                      {cfg.authType === 'api_key' && (
-                                        <div>
-                                          <label className="text-xs text-slate-300 font-bold mb-1.5 block"> Header Name</label>
-                                          <input
-                                            type="text"
-                                            value={cfg.headerName || ''}
-                                            onChange={(e) => updateLimsField('headerName', e.target.value)}
-                                            placeholder="X-LIMS-Key"
-                                            className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm font-mono"
-                                          />
-                                        </div>
-                                      )}
-                                    </div>
-
-                                    {(cfg.authType === 'api_key' || cfg.authType === 'bearer') && (
-                                      <div>
-                                        <label className="text-xs text-slate-300 font-bold mb-1.5 block"> Secret / Token Value</label>
-                                        <div className="relative">
-                                          <input
-                                            type={apiShowSecrets.lims ? 'text' : 'password'}
-                                            value={cfg.secretValue || ''}
-                                            onChange={(e) => updateLimsField('secretValue', e.target.value)}
-                                            placeholder="sk-xxxx..."
-                                            className="w-full px-3 py-2.5 pr-12 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm font-mono"
-                                          />
-                                          <button
-                                            type="button"
-                                            onClick={() => setApiShowSecrets((p) => ({ ...p, lims: !p.lims }))}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1 text-sm"
-                                          >
-                                            {apiShowSecrets.lims ? <AppIcon name="eyeOff" className="w-4 h-4" /> : <AppIcon name="eye" className="w-4 h-4" />}
-                                          </button>
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {cfg.authType === 'basic' && (
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <div>
-                                          <label className="text-xs text-slate-300 font-bold mb-1.5 block"> Username</label>
-                                          <input
-                                            type="text"
-                                            value={cfg.basicUsername || ''}
-                                            onChange={(e) => updateLimsField('basicUsername', e.target.value)}
-                                            placeholder="lims_user"
-                                            className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm font-mono"
-                                          />
-                                        </div>
-                                        <div>
-                                          <label className="text-xs text-slate-300 font-bold mb-1.5 block"> Password</label>
-                                          <input
-                                            type="password"
-                                            value={cfg.basicPassword || ''}
-                                            onChange={(e) => updateLimsField('basicPassword', e.target.value)}
-                                            placeholder="••••••••"
-                                            className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm font-mono"
-                                          />
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    <div className="bg-slate-950 rounded-xl border border-slate-800 p-4 space-y-3">
-                                      <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
-                                        <AppIcon name="refresh" className="w-3.5 h-3.5 text-sm" />
-                                        <h5 className="text-xs text-slate-200 font-bold">Field Mapping (จับคู่ JSON Response → ฟิลด์ MES)</h5>
-                                      </div>
-                                      <p className="text-[10px] text-slate-500">กรอก JSON path ตาม key ที่ API ส่งกลับมา</p>
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        {Object.entries(cfg.fieldMapping || {}).map(([mesField, jsonPath]) => (
-                                          <div key={mesField}>
-                                            <label className="text-[10px] text-slate-400 font-mono block mb-1">
-                                              MES: <span className="text-cyan-400">{mesField}</span>
-                                            </label>
-                                            <input
-                                              type="text"
-                                              value={jsonPath || ''}
-                                              onChange={(e) => updateLimsMapping(mesField, e.target.value)}
-                                              placeholder={`เช่น data.${mesField}`}
-                                              className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs font-mono"
-                                            />
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-
-                                    <div className="flex flex-wrap gap-3 pt-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => testApiConnection('lims')}
-                                        disabled={apiTestLoading.lims}
-                                        className={`btn-touch px-5 py-2.5 rounded-xl font-bold text-xs shadow-lg flex items-center gap-2 transition-all ${
-                                          apiTestLoading.lims
-                                            ? 'bg-slate-800 text-slate-500 cursor-wait'
-                                            : 'bg-purple-950 hover:bg-purple-900 text-purple-200 hover:text-white border border-purple-800'
-                                        }`}
-                                      >
-                                        {apiTestLoading.lims ? <AppIcon name="spinner" className="w-3.5 h-3.5 inline-block" /> : null}
-                                        <span>{apiTestLoading.lims ? 'กำลังทดสอบ...' : 'ทดสอบเชื่อมต่อ LIMS (Test Connection)'}</span>
-                                      </button>
-                                      {cfg.lastTestResult && (
-                                        <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${
-                                          cfg.lastTestResult.status === 'connected'
-                                            ? 'bg-emerald-950/80 border-emerald-700 text-emerald-300'
-                                            : 'bg-rose-950/80 border-rose-700 text-rose-300'
-                                        }`}>
-                                          {cfg.lastTestResult.message}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
-
-                          
-
                           {/* Info note */}
                           <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 flex items-start gap-2.5">
                             <AppIcon name="lightbulb" className="w-3.5 h-3.5 text-cyan-400 text-sm mt-0.5" />
                             <div>
                               <span className="text-slate-300 font-bold">หมายเหตุ: </span>
-                              ระบบนี้ออกแบบเป็น <span className="text-cyan-400 font-bold">Read-Only</span> เท่านั้น — ดึงข้อมูลจาก ERP/LIMS เข้ามาแสดงใน MES แต่ไม่ส่งข้อมูลกลับ ·
+                              ระบบนี้ออกแบบเป็น <span className="text-cyan-400 font-bold">Read-Only</span> เท่านั้น — ดึงข้อมูลจาก SAP ERP เข้ามาแสดงใน MES แต่ไม่ส่งข้อมูลกลับ ·
                               หาก API ถูกบล็อกโดย CORS Policy ให้ใช้ Backend Proxy (เมื่อเชื่อมต่อ Supabase จริง) ·
                               Secret/Token จะถูกเก็บใน LocalStorage ของเบราว์เซอร์ — ในระบบ Production ควรย้ายไปเก็บฝั่ง Server แบบเข้ารหัส
                             </div>
