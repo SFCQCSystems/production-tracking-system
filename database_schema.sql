@@ -339,11 +339,11 @@ CREATE TABLE IF NOT EXISTS lab_sample_history (
 -- =========================================================================
 
 CREATE TABLE IF NOT EXISTS app_users (
-    id VARCHAR(100) PRIMARY KEY,
+    id VARCHAR(100) PRIMARY KEY DEFAULT ('usr-' || substr(gen_random_uuid()::text, 1, 8)),
     username VARCHAR(100) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     full_name VARCHAR(150) NOT NULL,
-    role VARCHAR(50) NOT NULL DEFAULT 'OPERATOR',
+    role VARCHAR(50) NOT NULL DEFAULT 'USER',
     department VARCHAR(100),
     allowed_systems JSONB DEFAULT '[]'::jsonb,
     is_active BOOLEAN DEFAULT TRUE,
