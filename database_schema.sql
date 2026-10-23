@@ -86,10 +86,10 @@ INSERT INTO filling_lines (line_code, name) VALUES
 ('FLF27', 'Filling Line FLF27')
 ON CONFLICT (line_code) DO NOTHING;
 
--- 1.3 ตารางเหตุผลแล็บ QC (Resample & Reject Reasons)
+-- 1.3 ตารางเหตุผลแล็บ QC (Resample, Reject & Receive Reject Reasons)
 CREATE TABLE IF NOT EXISTS admin_reason_configs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    reason_type VARCHAR(20) NOT NULL CHECK (reason_type IN ('RESAMPLE', 'REJECT')),
+    reason_type VARCHAR(20) NOT NULL CHECK (reason_type IN ('RESAMPLE', 'REJECT', 'RECEIVE_REJECT')),
     reason_code VARCHAR(50) UNIQUE NOT NULL,
     reason_text_th VARCHAR(255) NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
@@ -103,8 +103,16 @@ INSERT INTO admin_reason_configs (reason_type, reason_code, reason_text_th, disp
 ('RESAMPLE', 'RES_RECHECK', 'แล็บต้องการ Re-check ตรวจสอบซ้ำเพื่อยืนยัน', 4),
 ('REJECT', 'REJ_OLD_OIL', 'พบคราบน้ำมันเก่าปนเปื้อน (ล้างถังไม่สะอาด)', 1),
 ('REJECT', 'REJ_VISCOSITY', 'ค่าความหนืดหลุดสเปกมาตรฐาน (Viscosity Out of Spec)', 2),
-('REJECT', 'REJ_SEDIMENT', 'พบตะกอนหรือสิ่งแปลกปลอมเกินเกณฑ์', 3)
+('REJECT', 'REJ_SEDIMENT', 'พบตะกอนหรือสิ่งแปลกปลอมเกินเกณฑ์', 3),
+('RECEIVE_REJECT', 'REC_INSUFFICIENT', 'ปริมาณตัวอย่างไม่เพียงพอต่อการทดสอบ', 1),
+('RECEIVE_REJECT', 'REC_DAMAGED', 'ภาชนะบรรจุชำรุด / ฝาปิดไม่สนิท / รั่วซึม', 2),
+('RECEIVE_REJECT', 'REC_LABEL_MISMATCH', 'ป้ายฉลากไม่ถูกต้อง / เลข Batch ไม่ตรงกับระบบ', 3),
+('RECEIVE_REJECT', 'REC_CONTAMINATED', 'ขวดปนเปื้อน / มีคราบน้ำหรือสิ่งแปลกปลอมตั้งแต่รับขวด', 4),
+('RECEIVE_REJECT', 'REC_DUPLICATE', 'ส่งตัวอย่างผิดขั้นตอน / หน้างานส่งซ้ำซ้อน', 5)
 ON CONFLICT (reason_code) DO NOTHING;
+
+-- มุมมองชื่อตารางทางเลือกสำหรับแล็บ (Lab Reasons View)
+CREATE OR REPLACE VIEW lab_reasons AS SELECT * FROM admin_reason_configs;
 
 -- 1.4 ตารางเวลาเป้าหมาย KPI / SLA
 CREATE TABLE IF NOT EXISTS kpi_sla_configs (
